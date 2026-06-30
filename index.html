@@ -1,604 +1,1109 @@
-const SAVE_KEY = "cagekeeper_v0_1_save";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#020203" />
+  <meta name="description" content="CageKeeper - a dark self-lock PWA for local chastity lock sessions." />
+  <title>CageKeeper</title>
+  <link rel="manifest" href="manifest.json?v=0.1.3" />
+  <link rel="icon" href="assets/icon-192.png" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
+  <style id="cagekeeper-critical-style">
+:root {
+  color-scheme: dark;
+  --bg: #020203;
+  --bg-soft: #060607;
+  --panel: rgba(9, 9, 11, 0.86);
+  --panel-strong: rgba(13, 13, 16, 0.94);
+  --panel-soft: rgba(255,255,255,0.026);
+  --text: #f5f1f6;
+  --muted: #89818c;
+  --muted-2: #5d5661;
+  --line: rgba(255,255,255,0.08);
+  --line-strong: rgba(255,255,255,0.14);
+  --pink: #ff4f95;
+  --pink-soft: rgba(255,79,149,0.14);
+  --purple: #8a5cff;
+  --purple-soft: rgba(138,92,255,0.13);
+  --gold: #d9b35f;
+  --gold-soft: rgba(217,179,95,0.13);
+  --danger: #ff315e;
+  --shadow: 0 28px 90px rgba(0,0,0,0.72);
+  --radius: 22px;
+}
 
-const defaultDailyCheckin = () => ({
-  enabled: true,
-  buttonText: "Check In",
-  successText: "Check-in recorded.",
-  missedText: "Daily check-in missed.",
-  missedMode: "log"
-});
+* {
+  box-sizing: border-box;
+}
 
-const defaultState = () => ({
-  version: "0.1.2",
-  activeLock: null,
-  completedLocks: [],
-  logs: [],
-  extensions: {
-    dailyCheckin: defaultDailyCheckin()
-  },
-  stats: {
-    completedLocks: 0,
-    totalLockedMs: 0,
-    totalCheckins: 0,
-    totalMissed: 0
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 18% -10%, rgba(255,79,149,0.09), transparent 34rem),
+    radial-gradient(circle at 92% 4%, rgba(138,92,255,0.08), transparent 30rem),
+    radial-gradient(circle at 50% 110%, rgba(217,179,95,0.055), transparent 36rem),
+    #020203;
+  overflow-x: hidden;
+}
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(255,255,255,0.018) 42%, transparent 64%),
+    radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.66) 76%);
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.78), rgba(0,0,0,0.18));
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.35rem, 7vw, 5.4rem);
+  line-height: 0.85;
+  letter-spacing: -0.075em;
+}
+
+h2 {
+  margin-bottom: 12px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.9rem, 4.6vw, 4.2rem);
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+}
+
+h3 {
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 124px;
+  padding: 22px 0 20px;
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.brand-mark {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255,79,149,0.16), transparent 1.55rem),
+    linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012)),
+    #050506;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.03),
+    0 0 32px rgba(255,79,149,0.055),
+    0 20px 44px rgba(0,0,0,0.56);
+}
+
+.brand-mark span {
+  position: relative;
+  width: 22px;
+  height: 30px;
+  border: 2px solid rgba(245,241,246,0.86);
+  border-radius: 8px 8px 5px 5px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(0,0,0,0.1));
+}
+
+.brand-mark span::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -19px;
+  width: 24px;
+  height: 22px;
+  transform: translateX(-50%);
+  border: 2px solid rgba(217,179,95,0.8);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+}
+
+.brand-mark span::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  width: 5px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--pink);
+  box-shadow: 0 0 16px rgba(255,79,149,0.58);
+}
+
+.overline {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-weight: 900;
+}
+
+.overline.pink,
+.pink {
+  color: var(--pink);
+}
+
+.overline.purple,
+.purple {
+  color: #b6a0ff;
+}
+
+.overline.gold,
+.gold {
+  color: var(--gold);
+}
+
+.status-pill {
+  min-width: max-content;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #d7d0db;
+  background: rgba(255,255,255,0.032);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.018);
+  font-size: 0.85rem;
+  font-weight: 850;
+}
+
+.status-pill.active {
+  border-color: rgba(255,79,149,0.28);
+  color: #ffd9e8;
+  background: rgba(255,79,149,0.07);
+}
+
+.status-pill.ready {
+  border-color: rgba(217,179,95,0.3);
+  color: #f1db9d;
+  background: rgba(217,179,95,0.07);
+}
+
+.tab-bar {
+  position: sticky;
+  top: 14px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(5,5,7,0.76);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 58px rgba(0,0,0,0.5);
+}
+
+.nav-btn {
+  flex: 1;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 900;
+  transition: 160ms ease;
+}
+
+.nav-btn:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.035);
+}
+
+.nav-btn.active {
+  color: var(--text);
+  border-color: rgba(255,79,149,0.2);
+  background:
+    linear-gradient(135deg, rgba(255,79,149,0.09), rgba(138,92,255,0.065)),
+    rgba(255,255,255,0.035);
+  box-shadow: 0 0 30px rgba(255,79,149,0.045);
+}
+
+main {
+  padding-top: 20px;
+}
+
+.screen {
+  display: none;
+  animation: appear 180ms ease both;
+}
+
+.screen.active-screen {
+  display: block;
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vault-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.hero-panel,
+.panel,
+.extension-card,
+.module-panel,
+.stat-tile {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(150deg, rgba(255,255,255,0.044), transparent 38%),
+    linear-gradient(180deg, var(--panel-strong), var(--panel));
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,0.018);
+}
+
+.hero-panel {
+  position: relative;
+  min-height: 610px;
+  overflow: hidden;
+  padding: clamp(22px, 4vw, 42px);
+}
+
+.hero-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255,79,149,0.095), transparent 19rem),
+    radial-gradient(circle at 88% 26%, rgba(138,92,255,0.07), transparent 18rem),
+    linear-gradient(90deg, transparent, rgba(255,255,255,0.02), transparent);
+}
+
+.hero-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-copy {
+  max-width: 680px;
+}
+
+.time-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: clamp(34px, 7vw, 74px) 0 12px;
+}
+
+.time-cell {
+  min-height: 158px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255,255,255,0.095);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,79,149,0.08), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    #030304;
+  box-shadow:
+    inset 0 -1px 0 rgba(255,255,255,0.04),
+    inset 0 0 36px rgba(0,0,0,0.62),
+    0 18px 54px rgba(0,0,0,0.46);
+}
+
+.time-cell:nth-child(2) {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(138,92,255,0.075), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    #030304;
+}
+
+.time-cell:nth-child(4) {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(217,179,95,0.055), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    #030304;
+}
+
+.time-cell strong {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.4rem, 8vw, 5.2rem);
+  line-height: 0.82;
+  letter-spacing: -0.08em;
+  text-shadow: 0 0 28px rgba(255,79,149,0.08);
+}
+
+.time-cell span {
+  color: var(--muted-2);
+  font-size: 0.69rem;
+  text-transform: uppercase;
+  letter-spacing: 0.23em;
+  font-weight: 950;
+}
+
+.timer-caption {
+  color: var(--muted);
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.meta-grid > div,
+.stat-tile {
+  min-height: 86px;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,0.075);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.026);
+}
+
+.meta-grid span,
+.stat-tile span {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--muted-2);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.19em;
+  font-weight: 900;
+}
+
+.meta-grid strong,
+.stat-tile strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.stat-tile strong {
+  font-size: 2rem;
+  letter-spacing: -0.045em;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.side-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.panel,
+.module-panel,
+.extension-card {
+  padding: 22px;
+}
+
+.compact-panel {
+  padding: 18px;
+}
+
+.module-panel {
+  border-color: rgba(255,79,149,0.12);
+}
+
+.module-header,
+.extension-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mini-badge {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,79,149,0.16);
+  border-radius: 999px;
+  color: #f4c5d9;
+  background: rgba(255,79,149,0.07);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.mini-badge.off {
+  border-color: rgba(255,255,255,0.09);
+  color: var(--muted);
+  background: rgba(255,255,255,0.025);
+}
+
+.primary-btn,
+.ghost-btn,
+.danger-btn,
+.file-btn,
+.text-btn {
+  border: 0;
+  border-radius: 16px;
+  min-height: 46px;
+  padding: 0 18px;
+  color: var(--text);
+  font-weight: 950;
+}
+
+.primary-btn {
+  border: 1px solid rgba(255,79,149,0.22);
+  background:
+    linear-gradient(135deg, rgba(255,79,149,0.25), rgba(138,92,255,0.18)),
+    #0b0b0e;
+  box-shadow: 0 0 36px rgba(255,79,149,0.075), inset 0 0 0 1px rgba(255,255,255,0.035);
+}
+
+.primary-btn:hover,
+.ghost-btn:hover,
+.file-btn:hover {
+  transform: translateY(-1px);
+}
+
+.primary-btn:disabled,
+.ghost-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+.ghost-btn,
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.035);
+}
+
+.danger-btn {
+  border: 1px solid rgba(255,49,94,0.32);
+  background: rgba(255,49,94,0.09);
+}
+
+.text-btn {
+  min-height: auto;
+  padding: 0;
+  color: #d8c5ff;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.wide {
+  width: 100%;
+}
+
+.form-stack {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  color: #d7d0dc;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(255,255,255,0.095);
+  border-radius: 15px;
+  outline: none;
+  color: var(--text);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.032), rgba(255,255,255,0.014)),
+    #040405;
+  padding: 0 14px;
+}
+
+input:focus,
+select:focus {
+  border-color: rgba(255,79,149,0.36);
+  box-shadow: 0 0 0 4px rgba(255,79,149,0.08);
+}
+
+.module-choice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.075);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.025);
+}
+
+.module-choice div {
+  display: grid;
+  gap: 4px;
+}
+
+.module-choice span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.wide-panel {
+  max-width: 760px;
+}
+
+.extension-card {
+  margin-top: 16px;
+  max-width: 920px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: max-content;
+  cursor: pointer;
+}
+
+.toggle-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch {
+  position: relative;
+  width: 50px;
+  height: 28px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: 160ms ease;
+}
+
+.toggle-row input:checked + .switch {
+  border-color: rgba(255,79,149,0.32);
+  background: rgba(255,79,149,0.12);
+}
+
+.toggle-row input:checked + .switch::after {
+  left: 26px;
+  background: var(--pink);
+  box-shadow: 0 0 18px rgba(255,79,149,0.42);
+}
+
+.module-settings {
+  max-width: 620px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.timeline {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.timeline.compact {
+  gap: 8px;
+}
+
+.log-item {
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.065);
+  border-radius: 14px;
+  background: rgba(0,0,0,0.22);
+}
+
+.log-time {
+  margin-bottom: 5px;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.log-text {
+  color: #ded9e3;
+  font-size: 0.9rem;
+  line-height: 1.36;
+}
+
+.empty-note {
+  padding: 16px;
+  color: var(--muted);
+  border: 1px dashed rgba(255,255,255,0.09);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.018);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.file-btn input {
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 14px 16px;
+  border: 1px solid rgba(255,79,149,0.22);
+  border-radius: 16px;
+  color: var(--text);
+  background: rgba(8,8,11,0.92);
+  box-shadow: 0 22px 70px rgba(0,0,0,0.62), 0 0 28px rgba(255,79,149,0.05);
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: 180ms ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 980px) {
+  .vault-layout {
+    grid-template-columns: 1fr;
   }
-});
 
-let state = loadState();
-let toastTimer = null;
+  .side-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
-const $ = (id) => document.getElementById(id);
-
-const els = {
-  statusPill: $("statusPill"),
-  lockTitle: $("lockTitle"),
-  lockSubtitle: $("lockSubtitle"),
-  daysCell: $("daysCell"),
-  hoursCell: $("hoursCell"),
-  minutesCell: $("minutesCell"),
-  secondsCell: $("secondsCell"),
-  timerCaption: $("timerCaption"),
-  activeMeta: $("activeMeta"),
-  startedAt: $("startedAt"),
-  releaseAt: $("releaseAt"),
-  durationText: $("durationText"),
-  activeExtensions: $("activeExtensions"),
-  dailyCheckinPanel: $("dailyCheckinPanel"),
-  dailyModuleBadge: $("dailyModuleBadge"),
-  dailyModuleStatus: $("dailyModuleStatus"),
-  checkInBtn: $("checkInBtn"),
-  completeLockBtn: $("completeLockBtn"),
-  recentLog: $("recentLog"),
-  fullLog: $("fullLog"),
-  statCompleted: $("statCompleted"),
-  statTotalTime: $("statTotalTime"),
-  statCheckins: $("statCheckins"),
-  statMissed: $("statMissed"),
-  startForm: $("startForm"),
-  lockName: $("lockName"),
-  minDuration: $("minDuration"),
-  maxDuration: $("maxDuration"),
-  durationUnit: $("durationUnit"),
-  startDailySummary: $("startDailySummary"),
-  extensionForm: $("extensionForm"),
-  dailyEnabled: $("dailyEnabled"),
-  dailyButtonText: $("dailyButtonText"),
-  dailySuccessText: $("dailySuccessText"),
-  dailyMissedText: $("dailyMissedText"),
-  dailyMissedMode: $("dailyMissedMode"),
-  exportBtn: $("exportBtn"),
-  importInput: $("importInput"),
-  resetBtn: $("resetBtn"),
-  toast: $("toast")
-};
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return defaultState();
-    return normalizeState(JSON.parse(raw));
-  } catch (error) {
-    console.warn("Failed to load CageKeeper save:", error);
-    return defaultState();
+  .meta-grid,
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-function normalizeState(input) {
-  const base = defaultState();
-  const daily = {
-    ...defaultDailyCheckin(),
-    ...(input?.extensions?.dailyCheckin || {})
-  };
-
-  const output = {
-    ...base,
-    ...input,
-    version: "0.1.2",
-    extensions: {
-      ...base.extensions,
-      ...(input?.extensions || {}),
-      dailyCheckin: daily
-    },
-    stats: { ...base.stats, ...(input?.stats || {}) },
-    logs: Array.isArray(input?.logs) ? input.logs : [],
-    completedLocks: Array.isArray(input?.completedLocks) ? input.completedLocks : [],
-    activeLock: input?.activeLock || null
-  };
-
-  if (output.activeLock) {
-    output.activeLock.checkIns = output.activeLock.checkIns || {};
-    output.activeLock.missedDates = Array.isArray(output.activeLock.missedDates) ? output.activeLock.missedDates : [];
-    output.activeLock.status = output.activeLock.status || "active";
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 14px 14px 92px;
   }
 
-  return output;
-}
-
-function saveState() {
-  localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-}
-
-function cryptoId() {
-  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function addLog(text, type = "info", at = Date.now()) {
-  state.logs.unshift({ id: cryptoId(), text, type, at });
-  state.logs = state.logs.slice(0, 500);
-  saveState();
-}
-
-function showToast(message) {
-  clearTimeout(toastTimer);
-  els.toast.textContent = message;
-  els.toast.classList.add("show");
-  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2800);
-}
-
-function switchScreen(screenId) {
-  document.querySelectorAll(".screen").forEach((screen) => {
-    screen.classList.toggle("active-screen", screen.id === screenId);
-  });
-
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.screen === screenId);
-  });
-}
-
-function todayKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function startOfLocalDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function addDays(date, days) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function isDailyCheckinEnabled() {
-  return Boolean(state.extensions?.dailyCheckin?.enabled);
-}
-
-function getDailyExtension() {
-  return { ...defaultDailyCheckin(), ...(state.extensions?.dailyCheckin || {}) };
-}
-
-function detectMissedCheckins() {
-  const lock = state.activeLock;
-  if (!lock || lock.status !== "active" || !isDailyCheckinEnabled()) return;
-
-  const start = new Date(lock.startAt);
-  const today = new Date();
-  let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const yesterdayStart = startOfLocalDay(addDays(today, -1));
-  const lockEndDay = startOfLocalDay(new Date(lock.endAt));
-  const daily = getDailyExtension();
-  let changed = false;
-
-  while (cursor.getTime() <= yesterdayStart && cursor.getTime() <= lockEndDay) {
-    const key = todayKey(cursor);
-
-    if (!lock.checkIns[key] && !lock.missedDates.includes(key)) {
-      lock.missedDates.push(key);
-      state.stats.totalMissed += 1;
-      state.logs.unshift({
-        id: cryptoId(),
-        text: `${daily.missedText || "Daily check-in missed."} (${formatDateOnly(cursor)}).`,
-        type: "missed",
-        at: Date.now()
-      });
-      changed = true;
-    }
-
-    cursor = addDays(cursor, 1);
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+    min-height: 0;
   }
 
-  if (changed) {
-    state.logs = state.logs.slice(0, 500);
-    saveState();
+  .brand-mark {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+  }
+
+  .tab-bar {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    top: auto;
+    border-radius: 24px;
+    overflow-x: auto;
+  }
+
+  .nav-btn {
+    flex: 0 0 auto;
+    min-width: 92px;
+  }
+
+  .hero-panel,
+  .panel,
+  .extension-card,
+  .module-panel {
+    border-radius: 20px;
+    padding: 18px;
+  }
+
+  .hero-panel {
+    min-height: 0;
+  }
+
+  .time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .time-cell {
+    min-height: 124px;
+  }
+
+  .side-stack,
+  .form-grid,
+  .meta-grid,
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .timer-caption {
+    text-align: left;
+  }
+
+  .module-header,
+  .extension-topline,
+  .module-choice {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
-function maybeMarkExpired() {
-  const lock = state.activeLock;
-  if (!lock || lock.status !== "active") return;
-  if (Date.now() < lock.endAt) return;
+</style>
+  <link rel="stylesheet" href="style.css?v=0.1.3" />
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
 
-  lock.status = "expired";
-  lock.expiredAt = Date.now();
-  addLog(`Timer expired for “${lock.name}”. Release is available.`, "expired");
-}
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span>
+        </div>
+        <div>
+          <p class="overline">CageKeeper v0.1.3</p>
+          <h1>CageKeeper</h1>
+        </div>
+      </div>
 
-function render() {
-  detectMissedCheckins();
-  maybeMarkExpired();
-  renderDashboard();
-  renderExtensionSettings();
-  renderLogs();
-  renderStats();
-}
+      <div id="statusPill" class="status-pill">No active lock</div>
+    </header>
 
-function renderDashboard() {
-  const lock = state.activeLock;
-  const now = Date.now();
-  const daily = getDailyExtension();
-  const dailyEnabled = isDailyCheckinEnabled();
+    <nav class="tab-bar" aria-label="Main navigation">
+      <button class="nav-btn active" data-screen="dashboard">Vault</button>
+      <button class="nav-btn" data-screen="start">Seal</button>
+      <button class="nav-btn" data-screen="extensions">Extensions</button>
+      <button class="nav-btn" data-screen="archive">Archive</button>
+      <button class="nav-btn" data-screen="settings">Settings</button>
+    </nav>
 
-  els.dailyModuleBadge.textContent = dailyEnabled ? "Enabled" : "Disabled";
-  els.dailyModuleBadge.classList.toggle("off", !dailyEnabled);
-  els.startDailySummary.textContent = dailyEnabled ? "Enabled for new locks" : "Disabled";
-  els.checkInBtn.textContent = daily.buttonText || "Check In";
+    <main>
+      <section id="dashboard" class="screen active-screen">
+        <div class="vault-layout">
+          <section class="hero-panel">
+            <div class="hero-copy">
+              <p class="overline">Vault status</p>
+              <h2 id="lockTitle">The cage is open.</h2>
+              <p id="lockSubtitle" class="muted">Seal a self-lock when you are ready.</p>
+            </div>
 
-  if (!lock) {
-    setStatus("No active lock", "idle");
-    els.lockTitle.textContent = "The cage is open.";
-    els.lockSubtitle.textContent = "Seal a self-lock when you are ready.";
-    setTimeCells(null);
-    els.timerCaption.textContent = "No active timer";
-    els.activeMeta.classList.add("hidden");
-    els.completeLockBtn.classList.add("hidden");
-    els.checkInBtn.disabled = true;
-    els.dailyModuleStatus.textContent = dailyEnabled
-      ? "No active lock is waiting for a check-in."
-      : "This extension is currently disabled.";
-    return;
-  }
+            <div class="time-grid" aria-live="polite" aria-label="Countdown timer">
+              <div class="time-cell">
+                <strong id="daysCell">--</strong>
+                <span>Days</span>
+              </div>
+              <div class="time-cell">
+                <strong id="hoursCell">--</strong>
+                <span>Hours</span>
+              </div>
+              <div class="time-cell">
+                <strong id="minutesCell">--</strong>
+                <span>Minutes</span>
+              </div>
+              <div class="time-cell">
+                <strong id="secondsCell">--</strong>
+                <span>Seconds</span>
+              </div>
+            </div>
 
-  const remaining = Math.max(0, lock.endAt - now);
-  const isExpired = lock.status === "expired" || remaining <= 0;
-  const today = todayKey();
-  const checkedToday = Boolean(lock.checkIns?.[today]);
+            <div id="timerCaption" class="timer-caption">No active timer</div>
 
-  setStatus(isExpired ? "Release available" : "Lock active", isExpired ? "ready" : "active");
-  els.lockTitle.textContent = isExpired ? "The timer has expired." : "The cage remains closed.";
-  els.lockSubtitle.textContent = isExpired
-    ? "Archive the completed lock to clear the vault."
-    : `“${lock.name}” is sealed.`;
+            <div id="activeMeta" class="meta-grid hidden">
+              <div>
+                <span>Started</span>
+                <strong id="startedAt">—</strong>
+              </div>
+              <div>
+                <span>Release</span>
+                <strong id="releaseAt">—</strong>
+              </div>
+              <div>
+                <span>Duration</span>
+                <strong id="durationText">—</strong>
+              </div>
+              <div>
+                <span>Extensions</span>
+                <strong id="activeExtensions">—</strong>
+              </div>
+            </div>
 
-  setTimeCells(isExpired ? 0 : remaining);
-  els.timerCaption.textContent = isExpired ? "Release available" : "Time remaining";
+            <div class="action-row">
+              <button id="completeLockBtn" class="primary-btn hidden">Archive Completed Lock</button>
+            </div>
+          </section>
 
-  els.activeMeta.classList.remove("hidden");
-  els.startedAt.textContent = formatDateTime(lock.startAt);
-  els.releaseAt.textContent = formatDateTime(lock.endAt);
-  els.durationText.textContent = formatDuration(lock.durationMs);
-  els.activeExtensions.textContent = dailyEnabled ? "Daily Check-In" : "None";
-  els.completeLockBtn.classList.toggle("hidden", !isExpired);
+          <aside class="side-stack">
+            <section id="dailyCheckinPanel" class="module-panel">
+              <div class="module-header">
+                <div>
+                  <p class="overline pink">Extension</p>
+                  <h3>Daily Check-In</h3>
+                </div>
+                <div id="dailyModuleBadge" class="mini-badge">Enabled</div>
+              </div>
+              <p id="dailyModuleStatus" class="muted">No active lock is waiting for a check-in.</p>
+              <button id="checkInBtn" class="ghost-btn" disabled>Check In</button>
+            </section>
 
-  if (!dailyEnabled) {
-    els.checkInBtn.disabled = true;
-    els.dailyModuleStatus.textContent = "Daily Check-In is disabled in Extensions.";
-  } else if (isExpired) {
-    els.checkInBtn.disabled = true;
-    els.dailyModuleStatus.textContent = "The timer has expired. No check-in is needed.";
-  } else if (checkedToday) {
-    els.checkInBtn.disabled = true;
-    els.dailyModuleStatus.textContent = "Today is already recorded.";
-  } else {
-    els.checkInBtn.disabled = false;
-    els.dailyModuleStatus.textContent = "One check-in is waiting for today.";
-  }
-}
+            <section class="panel compact-panel">
+              <p class="overline gold">Recent activity</p>
+              <div id="recentLog" class="timeline compact"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
 
-function setStatus(text, mode) {
-  els.statusPill.textContent = text;
-  els.statusPill.classList.toggle("active", mode === "active");
-  els.statusPill.classList.toggle("ready", mode === "ready");
-}
+      <section id="start" class="screen">
+        <section class="panel wide-panel">
+          <p class="overline purple">Seal</p>
+          <h2>Choose the range. CageKeeper chooses the time.</h2>
+          <p class="muted">The first version is intentionally simple: one local self-lock, a random duration, and optional modules.</p>
 
-function setTimeCells(ms) {
-  if (ms === null) {
-    els.daysCell.textContent = "--";
-    els.hoursCell.textContent = "--";
-    els.minutesCell.textContent = "--";
-    els.secondsCell.textContent = "--";
-    return;
-  }
+          <form id="startForm" class="form-stack">
+            <label>
+              Lock label
+              <input id="lockName" type="text" maxlength="40" placeholder="Example: Weekend lock" autocomplete="off" />
+            </label>
 
-  const parts = countdownParts(ms);
-  els.daysCell.textContent = String(parts.days).padStart(2, "0");
-  els.hoursCell.textContent = String(parts.hours).padStart(2, "0");
-  els.minutesCell.textContent = String(parts.minutes).padStart(2, "0");
-  els.secondsCell.textContent = String(parts.seconds).padStart(2, "0");
-}
+            <div class="form-grid">
+              <label>
+                Minimum
+                <input id="minDuration" type="number" min="1" step="1" value="12" required />
+              </label>
+              <label>
+                Maximum
+                <input id="maxDuration" type="number" min="1" step="1" value="48" required />
+              </label>
+            </div>
 
-function renderExtensionSettings() {
-  const daily = getDailyExtension();
-  els.dailyEnabled.checked = Boolean(daily.enabled);
-  els.dailyButtonText.value = daily.buttonText || "Check In";
-  els.dailySuccessText.value = daily.successText || "Check-in recorded.";
-  els.dailyMissedText.value = daily.missedText || "Daily check-in missed.";
-  els.dailyMissedMode.value = daily.missedMode || "log";
-}
+            <label>
+              Unit
+              <select id="durationUnit">
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </label>
 
-function renderLogs() {
-  const recent = state.logs.slice(0, 5);
-  els.recentLog.innerHTML = recent.length ? recent.map(renderLogItem).join("") : `<div class="empty-note">No log entries yet.</div>`;
-  els.fullLog.innerHTML = state.logs.length ? state.logs.map(renderLogItem).join("") : `<div class="empty-note">The archive is empty.</div>`;
-}
+            <div class="module-choice">
+              <div>
+                <strong>Daily Check-In extension</strong>
+                <span id="startDailySummary">Enabled</span>
+              </div>
+              <button class="text-btn" type="button" data-jump="extensions">Edit extension</button>
+            </div>
 
-function renderLogItem(log) {
-  return `
-    <div class="log-item">
-      <div class="log-time">${escapeHtml(formatDateTime(log.at, true))}</div>
-      <div class="log-text">${escapeHtml(log.text)}</div>
-    </div>
-  `;
-}
+            <button class="primary-btn wide" type="submit">Seal Lock</button>
+          </form>
+        </section>
+      </section>
 
-function renderStats() {
-  els.statCompleted.textContent = String(state.stats.completedLocks || 0);
-  els.statTotalTime.textContent = formatDurationShort(state.stats.totalLockedMs || 0);
-  els.statCheckins.textContent = String(state.stats.totalCheckins || 0);
-  els.statMissed.textContent = String(state.stats.totalMissed || 0);
-}
+      <section id="extensions" class="screen">
+        <section class="panel wide-panel">
+          <p class="overline pink">Extensions</p>
+          <h2>Optional modules, not core rules.</h2>
+          <p class="muted">CageKeeper starts with one modifiable extension. Later, this is where Pillory, Mercy Court, dice rolls, and time modifiers can live.</p>
+        </section>
 
-function startLock(event) {
-  event.preventDefault();
+        <section class="extension-card">
+          <div class="extension-topline">
+            <div>
+              <p class="overline gold">Installed extension</p>
+              <h3>Daily Check-In</h3>
+              <p class="muted">Adds one check-in action per local day while a lock is active. For now, missed days are logged only.</p>
+            </div>
+            <label class="toggle-row">
+              <input id="dailyEnabled" type="checkbox" />
+              <span class="switch" aria-hidden="true"></span>
+              Enabled
+            </label>
+          </div>
 
-  if (state.activeLock) {
-    showToast("A lock is already active or waiting to be archived.");
-    switchScreen("dashboard");
-    return;
-  }
+          <form id="extensionForm" class="form-stack module-settings">
+            <label>
+              Button text
+              <input id="dailyButtonText" type="text" maxlength="36" />
+            </label>
 
-  const name = els.lockName.value.trim() || "Unnamed Lock";
-  const min = Number(els.minDuration.value);
-  const max = Number(els.maxDuration.value);
-  const unit = els.durationUnit.value;
+            <label>
+              Success message
+              <input id="dailySuccessText" type="text" maxlength="70" />
+            </label>
 
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) {
-    showToast("Choose valid duration numbers.");
-    return;
-  }
+            <label>
+              Missed-day log text
+              <input id="dailyMissedText" type="text" maxlength="70" />
+            </label>
 
-  if (min > max) {
-    showToast("Minimum duration cannot be higher than maximum duration.");
-    return;
-  }
+            <label>
+              Missed-day effect
+              <select id="dailyMissedMode">
+                <option value="log">Log only</option>
+              </select>
+            </label>
 
-  const chosenAmount = randomInt(min, max);
-  const multiplier = unit === "days" ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
-  const durationMs = chosenAmount * multiplier;
-  const startAt = Date.now();
-  const endAt = startAt + durationMs;
+            <button class="primary-btn" type="submit">Save Extension</button>
+          </form>
+        </section>
+      </section>
 
-  state.activeLock = {
-    id: cryptoId(),
-    name,
-    min,
-    max,
-    unit,
-    chosenAmount,
-    durationMs,
-    startAt,
-    endAt,
-    status: "active",
-    checkIns: {},
-    missedDates: []
-  };
+      <section id="archive" class="screen">
+        <div class="stat-grid">
+          <div class="stat-tile">
+            <span>Completed locks</span>
+            <strong id="statCompleted">0</strong>
+          </div>
+          <div class="stat-tile">
+            <span>Total locked time</span>
+            <strong id="statTotalTime">0h</strong>
+          </div>
+          <div class="stat-tile">
+            <span>Check-ins</span>
+            <strong id="statCheckins">0</strong>
+          </div>
+          <div class="stat-tile">
+            <span>Missed days</span>
+            <strong id="statMissed">0</strong>
+          </div>
+        </div>
 
-  const extensionText = isDailyCheckinEnabled() ? " Daily Check-In enabled." : " No extensions enabled.";
-  addLog(`“${name}” sealed for ${formatDuration(durationMs)}.${extensionText}`, "start", startAt);
-  saveState();
-  els.startForm.reset();
-  els.minDuration.value = "12";
-  els.maxDuration.value = "48";
-  els.durationUnit.value = "hours";
-  render();
-  switchScreen("dashboard");
-  showToast("Lock sealed.");
-}
+        <section class="panel">
+          <p class="overline gold">Timeline</p>
+          <h2>Everything CageKeeper remembers.</h2>
+          <div id="fullLog" class="timeline"></div>
+        </section>
+      </section>
 
-function checkInToday() {
-  const lock = state.activeLock;
-  const daily = getDailyExtension();
-  if (!lock || lock.status !== "active" || !daily.enabled) return;
+      <section id="settings" class="screen">
+        <section class="panel wide-panel">
+          <p class="overline purple">Settings</p>
+          <h2>Local save data.</h2>
+          <p class="muted">Everything is stored on this device/browser. Export before clearing browser data or moving devices.</p>
 
-  const key = todayKey();
-  if (lock.checkIns[key]) {
-    showToast("Today is already recorded.");
-    return;
-  }
+          <div class="settings-actions">
+            <button id="exportBtn" class="ghost-btn">Export Save</button>
+            <label class="file-btn">
+              Import Save
+              <input id="importInput" type="file" accept="application/json,.json" />
+            </label>
+            <button id="resetBtn" class="danger-btn">Reset App</button>
+          </div>
+        </section>
 
-  lock.checkIns[key] = Date.now();
-  state.stats.totalCheckins += 1;
-  addLog(`Check-in recorded for ${formatDateOnly(new Date())}.`, "checkin");
-  saveState();
-  render();
-  showToast(daily.successText || "Check-in recorded.");
-}
+        <section class="panel compact-panel">
+          <p class="overline gold">Build notes</p>
+          <p class="muted">This build keeps CageKeeper self-lock only. The extension system is now separated from the core lock so future modules can plug in cleanly.</p>
+        </section>
+      </section>
+    </main>
 
-function completeLock() {
-  const lock = state.activeLock;
-  if (!lock) return;
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
 
-  if (Date.now() < lock.endAt) {
-    showToast("The timer has not expired yet.");
-    return;
-  }
-
-  const completed = {
-    ...lock,
-    status: "completed",
-    completedAt: Date.now()
-  };
-
-  state.completedLocks.unshift(completed);
-  state.completedLocks = state.completedLocks.slice(0, 200);
-  state.stats.completedLocks += 1;
-  state.stats.totalLockedMs += lock.durationMs;
-  state.activeLock = null;
-
-  addLog(`“${completed.name}” archived as completed.`, "completed");
-  saveState();
-  render();
-  showToast("Lock archived.");
-}
-
-function saveExtensionSettings(event) {
-  event.preventDefault();
-
-  state.extensions.dailyCheckin = {
-    enabled: Boolean(els.dailyEnabled.checked),
-    buttonText: cleanText(els.dailyButtonText.value, "Check In"),
-    successText: cleanText(els.dailySuccessText.value, "Check-in recorded."),
-    missedText: cleanText(els.dailyMissedText.value, "Daily check-in missed."),
-    missedMode: els.dailyMissedMode.value || "log"
-  };
-
-  addLog(`Daily Check-In extension ${state.extensions.dailyCheckin.enabled ? "enabled" : "disabled"}.`, "extension");
-  saveState();
-  render();
-  showToast("Extension saved.");
-}
-
-function exportSave() {
-  const data = JSON.stringify(state, null, 2);
-  const blob = new Blob([data], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const stamp = todayKey().replaceAll("-", "");
-  a.href = url;
-  a.download = `cagekeeper-save-${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  showToast("Save exported.");
-}
-
-function importSave(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      state = normalizeState(JSON.parse(String(reader.result)));
-      saveState();
-      render();
-      switchScreen("dashboard");
-      showToast("Save imported.");
-    } catch (error) {
-      console.warn("Import failed:", error);
-      showToast("That save file could not be imported.");
-    } finally {
-      els.importInput.value = "";
-    }
-  };
-  reader.readAsText(file);
-}
-
-function resetApp() {
-  const ok = window.confirm("Reset CageKeeper? This erases the current lock, history, stats, and extension settings on this device.");
-  if (!ok) return;
-
-  state = defaultState();
-  saveState();
-  render();
-  switchScreen("dashboard");
-  showToast("CageKeeper has been reset.");
-}
-
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function countdownParts(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  return {
-    days: Math.floor(totalSeconds / 86400),
-    hours: Math.floor((totalSeconds % 86400) / 3600),
-    minutes: Math.floor((totalSeconds % 3600) / 60),
-    seconds: totalSeconds % 60
-  };
-}
-
-function formatDuration(ms) {
-  const totalHours = Math.round(ms / 3600000);
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-
-  if (days && hours) return `${days} day${days === 1 ? "" : "s"}, ${hours} hour${hours === 1 ? "" : "s"}`;
-  if (days) return `${days} day${days === 1 ? "" : "s"}`;
-  return `${hours} hour${hours === 1 ? "" : "s"}`;
-}
-
-function formatDurationShort(ms) {
-  const totalHours = Math.round(ms / 3600000);
-  if (totalHours < 24) return `${totalHours}h`;
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-  return hours ? `${days}d ${hours}h` : `${days}d`;
-}
-
-function formatDateTime(value, compact = false) {
-  const date = new Date(value);
-  const options = compact
-    ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
-    : { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
-  return date.toLocaleString(undefined, options);
-}
-
-function formatDateOnly(date) {
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-function cleanText(value, fallback) {
-  const cleaned = String(value || "").trim();
-  return cleaned || fallback;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function bindEvents() {
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => switchScreen(btn.dataset.screen));
-  });
-
-  document.querySelectorAll("[data-jump]").forEach((btn) => {
-    btn.addEventListener("click", () => switchScreen(btn.dataset.jump));
-  });
-
-  els.startForm.addEventListener("submit", startLock);
-  els.extensionForm.addEventListener("submit", saveExtensionSettings);
-  els.checkInBtn.addEventListener("click", checkInToday);
-  els.completeLockBtn.addEventListener("click", completeLock);
-  els.exportBtn.addEventListener("click", exportSave);
-  els.importInput.addEventListener("change", importSave);
-  els.resetBtn.addEventListener("click", resetApp);
-}
-
-function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js").catch((error) => {
-      console.warn("Service worker registration failed:", error);
-    });
-  });
-}
-
-function init() {
-  bindEvents();
-  registerServiceWorker();
-  render();
-  setInterval(render, 1000);
-}
-
-init();
+  <script src="app.js?v=0.1.3"></script>
+</body>
+</html>
