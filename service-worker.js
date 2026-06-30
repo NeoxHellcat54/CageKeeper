@@ -1,35 +1,14 @@
-const CACHE_NAME = "cagekeeper-v0-1-3";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./style.css?v=0.1.3",
-  "./app.js?v=0.1.3",
-  "./manifest.json?v=0.1.3",
-  "./assets/icon-192.png",
-  "./assets/icon-512.png"
-];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-    ))
-  );
-  self.clients.claim();
-});
-
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request).catch(() => caches.match("./index.html"));
-    })
-  );
-});
+{
+  "name": "CageKeeper",
+  "short_name": "CageKeeper",
+  "description": "Self-lock vault PWA",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#030305",
+  "theme_color": "#030305",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
