@@ -1,7 +1,7 @@
 const SAVE_KEY = "cagekeeper_v0_1_save";
 
 const defaultState = () => ({
-  version: "0.1.0",
+  version: "0.1.1",
   activeLock: null,
   completedLocks: [],
   logs: [],
@@ -15,7 +15,6 @@ const defaultState = () => ({
 
 let state = loadState();
 let toastTimer = null;
-let tickTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -45,10 +44,6 @@ const els = {
   minDuration: $("minDuration"),
   maxDuration: $("maxDuration"),
   durationUnit: $("durationUnit"),
-  lockNote: $("lockNote"),
-  acceptContract: $("acceptContract"),
-  contractTitle: $("contractTitle"),
-  contractBody: $("contractBody"),
   exportBtn: $("exportBtn"),
   importInput: $("importInput"),
   resetBtn: $("resetBtn"),
@@ -59,8 +54,7 @@ function loadState() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return defaultState();
-    const parsed = JSON.parse(raw);
-    return normalizeState(parsed);
+    return normalizeState(JSON.parse(raw));
   } catch (error) {
     console.warn("Failed to load CageKeeper save:", error);
     return defaultState();
@@ -72,6 +66,7 @@ function normalizeState(input) {
   const output = {
     ...base,
     ...input,
+    version: "0.1.1",
     stats: { ...base.stats, ...(input?.stats || {}) },
     logs: Array.isArray(input?.logs) ? input.logs : [],
     completedLocks: Array.isArray(input?.completedLocks) ? input.completedLocks : [],
@@ -81,6 +76,7 @@ function normalizeState(input) {
   if (output.activeLock) {
     output.activeLock.checkIns = output.activeLock.checkIns || {};
     output.activeLock.missedDates = Array.isArray(output.activeLock.missedDates) ? output.activeLock.missedDates : [];
+    output.activeLock.status = output.activeLock.status || "active";
   }
 
   return output;
@@ -90,15 +86,15 @@ function saveState() {
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
 }
 
+function cryptoId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function addLog(text, type = "info", at = Date.now()) {
   state.logs.unshift({ id: cryptoId(), text, type, at });
   state.logs = state.logs.slice(0, 500);
   saveState();
-}
-
-function cryptoId() {
-  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function showToast(message) {
@@ -143,19 +139,18 @@ function detectMissedCheckins() {
   const today = new Date();
   let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const yesterdayStart = startOfLocalDay(addDays(today, -1));
+  const lockEndDay = startOfLocalDay(new Date(lock.endAt));
   let changed = false;
 
-  while (cursor.getTime() <= yesterdayStart) {
+  while (cursor.getTime() <= yesterdayStart && cursor.getTime() <= lockEndDay) {
     const key = todayKey(cursor);
-    const dayStart = startOfLocalDay(cursor);
-    const lockEndDay = startOfLocalDay(new Date(lock.endAt));
 
-    if (dayStart <= lockEndDay && !lock.checkIns[key] && !lock.missedDates.includes(key)) {
+    if (!lock.checkIns[key] && !lock.missedDates.includes(key)) {
       lock.missedDates.push(key);
       state.stats.totalMissed += 1;
       state.logs.unshift({
         id: cryptoId(),
-        text: `A day passed without obedience: ${formatDateOnly(cursor)}.`,
+        text: `Check-in missed on ${formatDateOnly(cursor)}.`,
         type: "missed",
         at: Date.now()
       });
@@ -178,14 +173,13 @@ function maybeMarkExpired() {
 
   lock.status = "expired";
   lock.expiredAt = Date.now();
-  addLog(`The timer for “${lock.name}” has expired. Release is now permitted.`, "expired");
+  addLog(`Timer expired for “${lock.name}”. Release is available.`, "expired");
 }
 
 function render() {
   detectMissedCheckins();
   maybeMarkExpired();
   renderDashboard();
-  renderContract();
   renderLogs();
   renderStats();
 }
@@ -198,15 +192,15 @@ function renderDashboard() {
   if (!lock) {
     els.statusPill.textContent = "No active lock";
     els.lockTitle.textContent = "The cage is open.";
-    els.lockSubtitle.textContent = "Start a self-lock when you are ready to surrender the key.";
+    els.lockSubtitle.textContent = "Start a self-lock when you are ready.";
     els.countdown.textContent = "--:--:--";
     els.countdownLabel.textContent = "No active timer";
     els.activeMeta.classList.add("hidden");
     els.checkInBtn.disabled = true;
-    els.checkInBtn.textContent = "Confirm Today’s Obedience";
+    els.checkInBtn.textContent = "Check In";
     els.completeLockBtn.classList.add("hidden");
-    els.todayStatus.textContent = "Awaiting purpose.";
-    els.todayDetails.textContent = "No active lock is demanding your attention.";
+    els.todayStatus.textContent = "Nothing is sealed.";
+    els.todayDetails.textContent = "No active lock is waiting for a check-in.";
     return;
   }
 
@@ -214,13 +208,14 @@ function renderDashboard() {
   const checkedToday = Boolean(lock.checkIns?.[today]);
   const isExpired = lock.status === "expired" || remaining <= 0;
 
-  els.statusPill.textContent = isExpired ? "Timer expired" : "Lock active";
-  els.lockTitle.textContent = isExpired ? "The lock has expired." : "The cage remains closed.";
+  els.statusPill.textContent = isExpired ? "Release available" : "Lock active";
+  els.lockTitle.textContent = isExpired ? "The timer has expired." : "The cage remains closed.";
   els.lockSubtitle.textContent = isExpired
-    ? "Release is now permitted. Complete the lock to archive this session."
-    : `“${lock.name}” is sealed until the chosen time has passed.`;
+    ? "Archive the completed lock when you are ready."
+    : `“${lock.name}” is sealed.`;
   els.countdown.textContent = isExpired ? "00:00:00" : formatCountdown(remaining);
-  els.countdownLabel.textContent = isExpired ? "Release permitted" : "Time remaining";
+  els.countdownLabel.textContent = isExpired ? "Release available" : "Time remaining";
+
   els.activeMeta.classList.remove("hidden");
   els.startedAt.textContent = formatDateTime(lock.startAt);
   els.releaseAt.textContent = formatDateTime(lock.endAt);
@@ -228,46 +223,25 @@ function renderDashboard() {
   els.checkinCount.textContent = String(Object.keys(lock.checkIns || {}).length);
 
   els.checkInBtn.disabled = isExpired || checkedToday;
-  els.checkInBtn.textContent = checkedToday ? "Obedience Confirmed" : "Confirm Today’s Obedience";
+  els.checkInBtn.textContent = checkedToday ? "Checked In" : "Check In";
   els.completeLockBtn.classList.toggle("hidden", !isExpired);
 
   if (isExpired) {
-    els.todayStatus.textContent = "Release is permitted.";
-    els.todayDetails.textContent = "The timer has reached zero. Complete the lock when you are ready to archive it.";
+    els.todayStatus.textContent = "Release is available.";
+    els.todayDetails.textContent = "The countdown reached zero. Archive the session to clear the vault.";
   } else if (checkedToday) {
-    els.todayStatus.textContent = "Today’s obedience is recorded.";
-    els.todayDetails.textContent = "The lock is satisfied for today. Return tomorrow if the timer still holds you.";
+    els.todayStatus.textContent = "Today is recorded.";
+    els.todayDetails.textContent = "CageKeeper has logged today’s check-in.";
   } else {
-    els.todayStatus.textContent = "Today’s obedience is waiting.";
-    els.todayDetails.textContent = "Confirm your daily check-in before the day passes.";
+    els.todayStatus.textContent = "Check-in waiting.";
+    els.todayDetails.textContent = "Press Check In before the day passes.";
   }
-}
-
-function renderContract() {
-  const lock = state.activeLock;
-
-  if (!lock) {
-    els.contractTitle.textContent = "No contract is currently sealed.";
-    els.contractBody.innerHTML = "<p>Start a self-lock to create a contract.</p>";
-    return;
-  }
-
-  els.contractTitle.textContent = `Contract: ${escapeHtml(lock.name)}`;
-  els.contractBody.innerHTML = `
-    <p><strong>I accept this self-lock willingly.</strong></p>
-    <p>Once sealed, the chosen duration is final until the timer expires. CageKeeper will record my progress, check-ins, and missed days.</p>
-    <hr>
-    <p><strong>Started:</strong> ${escapeHtml(formatDateTime(lock.startAt))}</p>
-    <p><strong>Release:</strong> ${escapeHtml(formatDateTime(lock.endAt))}</p>
-    <p><strong>Chosen duration:</strong> ${escapeHtml(formatDuration(lock.durationMs))}</p>
-    ${lock.note ? `<p><strong>Private note:</strong> ${escapeHtml(lock.note)}</p>` : ""}
-  `;
 }
 
 function renderLogs() {
   const recent = state.logs.slice(0, 5);
-  els.recentLog.innerHTML = recent.length ? recent.map(renderLogItem).join("") : `<div class="empty-note">No whispers yet.</div>`;
-  els.fullLog.innerHTML = state.logs.length ? state.logs.map(renderLogItem).join("") : `<div class="empty-note">History is empty.</div>`;
+  els.recentLog.innerHTML = recent.length ? recent.map(renderLogItem).join("") : `<div class="empty-note">No log entries yet.</div>`;
+  els.fullLog.innerHTML = state.logs.length ? state.logs.map(renderLogItem).join("") : `<div class="empty-note">The archive is empty.</div>`;
 }
 
 function renderLogItem(log) {
@@ -290,7 +264,7 @@ function startLock(event) {
   event.preventDefault();
 
   if (state.activeLock) {
-    showToast("A lock is already sealed.");
+    showToast("A lock is already active or waiting to be archived.");
     switchScreen("dashboard");
     return;
   }
@@ -299,12 +273,6 @@ function startLock(event) {
   const min = Number(els.minDuration.value);
   const max = Number(els.maxDuration.value);
   const unit = els.durationUnit.value;
-  const note = els.lockNote.value.trim();
-
-  if (!els.acceptContract.checked) {
-    showToast("Accept the self-lock agreement before sealing the lock.");
-    return;
-  }
 
   if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= 0) {
     showToast("Choose valid duration numbers.");
@@ -325,7 +293,6 @@ function startLock(event) {
   state.activeLock = {
     id: cryptoId(),
     name,
-    note,
     min,
     max,
     unit,
@@ -338,7 +305,7 @@ function startLock(event) {
     missedDates: []
   };
 
-  addLog(`“${name}” was sealed for ${formatDuration(durationMs)}.`, "start", startAt);
+  addLog(`“${name}” sealed for ${formatDuration(durationMs)}.`, "start", startAt);
   saveState();
   els.startForm.reset();
   els.minDuration.value = "12";
@@ -346,7 +313,7 @@ function startLock(event) {
   els.durationUnit.value = "hours";
   render();
   switchScreen("dashboard");
-  showToast("The lock is sealed.");
+  showToast("Cage sealed.");
 }
 
 function checkInToday() {
@@ -361,10 +328,10 @@ function checkInToday() {
 
   lock.checkIns[key] = Date.now();
   state.stats.totalCheckins += 1;
-  addLog(`Daily obedience confirmed for ${formatDateOnly(new Date())}.`, "checkin");
+  addLog(`Check-in recorded for ${formatDateOnly(new Date())}.`, "checkin");
   saveState();
   render();
-  showToast("Today’s obedience has been recorded.");
+  showToast("Check-in recorded.");
 }
 
 function completeLock() {
@@ -388,10 +355,10 @@ function completeLock() {
   state.stats.totalLockedMs += lock.durationMs;
   state.activeLock = null;
 
-  addLog(`“${completed.name}” was completed. Release was accepted.`, "completed");
+  addLog(`“${completed.name}” archived as completed.`, "completed");
   saveState();
   render();
-  showToast("Lock completed and archived.");
+  showToast("Lock archived.");
 }
 
 function exportSave() {
@@ -416,8 +383,7 @@ function importSave(event) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const imported = JSON.parse(String(reader.result));
-      state = normalizeState(imported);
+      state = normalizeState(JSON.parse(String(reader.result)));
       saveState();
       render();
       switchScreen("dashboard");
@@ -433,7 +399,7 @@ function importSave(event) {
 }
 
 function resetApp() {
-  const ok = window.confirm("Reset CageKeeper? This will erase the current lock, history, and stats on this device.");
+  const ok = window.confirm("Reset CageKeeper? This erases the current lock, history, and stats on this device.");
   if (!ok) return;
 
   state = defaultState();
@@ -527,7 +493,7 @@ function init() {
   bindEvents();
   registerServiceWorker();
   render();
-  tickTimer = setInterval(render, 1000);
+  setInterval(render, 1000);
 }
 
 init();

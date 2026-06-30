@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#120713" />
+  <meta name="theme-color" content="#070604" />
   <meta name="description" content="CageKeeper - a dark self-lock PWA for local chastity lock sessions." />
   <title>CageKeeper</title>
   <link rel="manifest" href="manifest.json" />
@@ -12,179 +12,186 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div class="grain" aria-hidden="true"></div>
+
   <div class="app-shell">
-    <header class="hero">
-      <div class="hero__glow"></div>
-      <div class="brand-row">
-        <div class="brand-mark" aria-hidden="true">◆</div>
+    <aside class="rail" aria-label="Main navigation">
+      <div class="rail-brand">
+        <div class="brand-sigil" aria-hidden="true">⌾</div>
         <div>
-          <h1>CageKeeper</h1>
-          <p>Your key is sealed. Time decides when you are released.</p>
+          <strong>CageKeeper</strong>
+          <span>Self-lock console</span>
         </div>
       </div>
-      <div id="statusPill" class="status-pill">No active lock</div>
-    </header>
 
-    <nav class="bottom-nav" aria-label="Main navigation">
-      <button class="nav-btn active" data-screen="dashboard">Dashboard</button>
-      <button class="nav-btn" data-screen="start">Start</button>
-      <button class="nav-btn" data-screen="contract">Contract</button>
-      <button class="nav-btn" data-screen="history">History</button>
+      <nav class="rail-nav">
+        <button class="nav-btn active" data-screen="dashboard">Vault</button>
+        <button class="nav-btn" data-screen="start">Seal</button>
+        <button class="nav-btn" data-screen="archive">Archive</button>
+        <button class="nav-btn" data-screen="settings">Settings</button>
+      </nav>
+    </aside>
+
+    <div class="main-column">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CageKeeper v0.1</p>
+          <h1>Locked by time.</h1>
+        </div>
+        <div id="statusPill" class="status-pill">No active lock</div>
+      </header>
+
+      <main>
+        <section id="dashboard" class="screen active-screen">
+          <div class="vault-card">
+            <div class="vault-glow" aria-hidden="true"></div>
+            <div class="vault-header">
+              <div>
+                <p class="eyebrow">Current session</p>
+                <h2 id="lockTitle">The cage is open.</h2>
+                <p id="lockSubtitle" class="muted">Start a self-lock when you are ready.</p>
+              </div>
+            </div>
+
+            <div class="timer-ring" aria-live="polite">
+              <div class="timer-inner">
+                <div id="countdown" class="countdown">--:--:--</div>
+                <div id="countdownLabel" class="countdown-label">No active timer</div>
+              </div>
+            </div>
+
+            <div id="activeMeta" class="meta-grid hidden">
+              <div>
+                <span>Started</span>
+                <strong id="startedAt">—</strong>
+              </div>
+              <div>
+                <span>Release</span>
+                <strong id="releaseAt">—</strong>
+              </div>
+              <div>
+                <span>Duration</span>
+                <strong id="durationText">—</strong>
+              </div>
+              <div>
+                <span>Check-ins</span>
+                <strong id="checkinCount">—</strong>
+              </div>
+            </div>
+
+            <div class="action-row">
+              <button id="checkInBtn" class="primary-btn" disabled>Check In</button>
+              <button id="completeLockBtn" class="steel-btn hidden">Archive Completed Lock</button>
+            </div>
+          </div>
+
+          <div class="split-grid">
+            <div class="panel">
+              <p class="eyebrow">Today</p>
+              <h3 id="todayStatus">Nothing is sealed.</h3>
+              <p id="todayDetails" class="muted">No active lock is waiting for a check-in.</p>
+            </div>
+
+            <div class="panel">
+              <p class="eyebrow">Recent log</p>
+              <div id="recentLog" class="timeline compact"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="start" class="screen">
+          <div class="panel wide-panel">
+            <p class="eyebrow">Seal a session</p>
+            <h2>No ceremony. Just the timer.</h2>
+            <p class="muted">Choose a range. CageKeeper randomly selects the final duration and starts the lock immediately.</p>
+
+            <form id="startForm" class="form-stack">
+              <label>
+                Session label
+                <input id="lockName" type="text" maxlength="40" placeholder="Example: Weekend lock" autocomplete="off" />
+              </label>
+
+              <div class="form-grid">
+                <label>
+                  Minimum
+                  <input id="minDuration" type="number" min="1" step="1" value="12" required />
+                </label>
+                <label>
+                  Maximum
+                  <input id="maxDuration" type="number" min="1" step="1" value="48" required />
+                </label>
+              </div>
+
+              <label>
+                Unit
+                <select id="durationUnit">
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </label>
+
+              <button class="primary-btn wide" type="submit">Seal Cage</button>
+            </form>
+          </div>
+        </section>
+
+        <section id="archive" class="screen">
+          <div class="stat-grid">
+            <div class="stat-tile">
+              <span>Completed locks</span>
+              <strong id="statCompleted">0</strong>
+            </div>
+            <div class="stat-tile">
+              <span>Total locked time</span>
+              <strong id="statTotalTime">0h</strong>
+            </div>
+            <div class="stat-tile">
+              <span>Daily check-ins</span>
+              <strong id="statCheckins">0</strong>
+            </div>
+            <div class="stat-tile">
+              <span>Missed check-ins</span>
+              <strong id="statMissed">0</strong>
+            </div>
+          </div>
+
+          <div class="panel">
+            <p class="eyebrow">Timeline</p>
+            <h2>Everything CageKeeper remembers.</h2>
+            <div id="fullLog" class="timeline"></div>
+          </div>
+        </section>
+
+        <section id="settings" class="screen">
+          <div class="panel wide-panel">
+            <p class="eyebrow">Save data</p>
+            <h2>Backup, restore, or wipe the vault.</h2>
+            <p class="muted">CageKeeper v0.1 stores everything locally on this device/browser.</p>
+
+            <div class="settings-actions">
+              <button id="exportBtn" class="steel-btn">Export Save</button>
+              <label class="file-btn">
+                Import Save
+                <input id="importInput" type="file" accept="application/json,.json" />
+              </label>
+              <button id="resetBtn" class="danger-btn">Reset App</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <p class="eyebrow">About</p>
+            <p class="muted">This version is self-lock only. Extensions, Pillory Simulator, rewards, punishments, and keyholder features are intentionally left out for later builds.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <nav class="mobile-nav" aria-label="Main navigation">
+      <button class="nav-btn active" data-screen="dashboard">Vault</button>
+      <button class="nav-btn" data-screen="start">Seal</button>
+      <button class="nav-btn" data-screen="archive">Archive</button>
       <button class="nav-btn" data-screen="settings">Settings</button>
     </nav>
-
-    <main>
-      <section id="dashboard" class="screen active-screen">
-        <div class="card lock-card">
-          <div class="card-label">Current lock</div>
-          <h2 id="lockTitle">The cage is open.</h2>
-          <p id="lockSubtitle" class="muted">Start a self-lock when you are ready to surrender the key.</p>
-
-          <div class="countdown-wrap" aria-live="polite">
-            <div id="countdown" class="countdown">--:--:--</div>
-            <div id="countdownLabel" class="countdown-label">No active timer</div>
-          </div>
-
-          <div id="activeMeta" class="meta-grid hidden">
-            <div>
-              <span>Started</span>
-              <strong id="startedAt">—</strong>
-            </div>
-            <div>
-              <span>Release</span>
-              <strong id="releaseAt">—</strong>
-            </div>
-            <div>
-              <span>Duration</span>
-              <strong id="durationText">—</strong>
-            </div>
-            <div>
-              <span>Check-ins</span>
-              <strong id="checkinCount">—</strong>
-            </div>
-          </div>
-
-          <div class="action-row">
-            <button id="checkInBtn" class="primary-btn" disabled>Confirm Today’s Obedience</button>
-            <button id="completeLockBtn" class="ghost-btn hidden">Complete Lock</button>
-          </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-label">Today</div>
-            <h3 id="todayStatus">Awaiting purpose.</h3>
-            <p id="todayDetails" class="muted">No active lock is demanding your attention.</p>
-          </div>
-
-          <div class="card">
-            <div class="card-label">Stats</div>
-            <div class="stat-list">
-              <div><span>Completed locks</span><strong id="statCompleted">0</strong></div>
-              <div><span>Total locked time</span><strong id="statTotalTime">0h</strong></div>
-              <div><span>Daily check-ins</span><strong id="statCheckins">0</strong></div>
-              <div><span>Missed check-ins</span><strong id="statMissed">0</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-label">Recent whispers</div>
-          <div id="recentLog" class="timeline compact"></div>
-        </div>
-      </section>
-
-      <section id="start" class="screen">
-        <div class="card">
-          <div class="card-label">Seal a new lock</div>
-          <h2>Choose the terms. CageKeeper chooses the time.</h2>
-          <p class="muted">The final duration will be randomly selected between your minimum and maximum.</p>
-
-          <form id="startForm" class="form-stack">
-            <label>
-              Lock name
-              <input id="lockName" type="text" maxlength="40" placeholder="Example: Weekend Seal" autocomplete="off" />
-            </label>
-
-            <div class="form-grid">
-              <label>
-                Minimum
-                <input id="minDuration" type="number" min="1" step="1" value="12" required />
-              </label>
-              <label>
-                Maximum
-                <input id="maxDuration" type="number" min="1" step="1" value="48" required />
-              </label>
-            </div>
-
-            <label>
-              Unit
-              <select id="durationUnit">
-                <option value="hours">Hours</option>
-                <option value="days">Days</option>
-              </select>
-            </label>
-
-            <label>
-              Private note / intent
-              <textarea id="lockNote" rows="4" maxlength="500" placeholder="Optional. Write why this lock is being sealed."></textarea>
-            </label>
-
-            <div class="contract-preview">
-              <strong>Self-lock agreement</strong>
-              <p>I accept this self-lock willingly. Once sealed, the chosen duration is final until the timer expires. CageKeeper will record my progress, check-ins, and missed days.</p>
-            </div>
-
-            <label class="check-line">
-              <input id="acceptContract" type="checkbox" />
-              I understand and accept the self-lock agreement.
-            </label>
-
-            <button class="primary-btn wide" type="submit">Seal the Lock</button>
-          </form>
-        </div>
-      </section>
-
-      <section id="contract" class="screen">
-        <div class="card parchment-card">
-          <div class="card-label">Contract</div>
-          <h2 id="contractTitle">No contract is currently sealed.</h2>
-          <div id="contractBody" class="contract-body">
-            <p>Start a self-lock to create a contract.</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="history" class="screen">
-        <div class="card">
-          <div class="card-label">Timeline</div>
-          <h2>Everything the lock remembers.</h2>
-          <div id="fullLog" class="timeline"></div>
-        </div>
-      </section>
-
-      <section id="settings" class="screen">
-        <div class="card">
-          <div class="card-label">Save data</div>
-          <h2>Backup, restore, or wipe CageKeeper.</h2>
-          <p class="muted">This version stores everything locally on this device/browser.</p>
-
-          <div class="settings-actions">
-            <button id="exportBtn" class="ghost-btn">Export Save</button>
-            <label class="file-btn">
-              Import Save
-              <input id="importInput" type="file" accept="application/json,.json" />
-            </label>
-            <button id="resetBtn" class="danger-btn">Reset App</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-label">About v0.1</div>
-          <p class="muted">CageKeeper v0.1 is self-lock only. Extensions, Pillory Simulator, rewards, punishments, and keyholder features are intentionally not included yet.</p>
-        </div>
-      </section>
-    </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
