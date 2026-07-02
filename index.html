@@ -130,12 +130,12 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
 <body>
   <div id="app" class="boot"><div><h1>CageKeeper</h1><small>Loading the vault…</small></div></div>
   <script id="cagekeeper-inline-app">
-/* CageKeeper v0.2.5.1.1 Evil Dice + Big Black Deck + Obligations Deploy Fix */
+/* CageKeeper v0.2.5.2 Obligations Regularity Fix */
 (() => {
   'use strict';
 
   const STORAGE_KEY = 'cagekeeper_v020_state';
-  const VERSION = '0.2.5.1';
+  const VERSION = '0.2.5.2';
   const DAY = 86400000;
   const HOUR = 3600000;
   const MINUTE = 60000;
@@ -275,7 +275,8 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
       },
       obligations: {
         enabled: false,
-        rules: [defaultObligationRule()]
+        rules: [defaultObligationRule()],
+        penalties: [defaultObligationPenalty()]
       }
     }
   });
@@ -285,15 +286,18 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
       id: uid('obligation'),
       name: 'Daily Evil Dice',
       action: 'evilDice',
-      regularity: { d: 1, h: 0, m: 0 },
-      window: { d: 0, h: 12, m: 0 },
-      penalty: {
-        type: 'addTime',
-        amount: { d: 0, h: 2, m: 0 },
-        pilloryDuration: { d: 0, h: 1, m: 0 },
-        visitors: 5,
-        points: 100
-      }
+      regularity: { d: 1, h: 0, m: 0 }
+    };
+  }
+
+  function defaultObligationPenalty() {
+    return {
+      id: uid('obPenalty'),
+      type: 'addTime',
+      amount: { d: 0, h: 2, m: 0 },
+      pilloryDuration: { d: 0, h: 1, m: 0 },
+      visitors: 5,
+      points: 100
     };
   }
 
@@ -359,12 +363,29 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     }
     lock.extensions = lock.extensions || {};
     lock.sealedRules = lock.sealedRules || buildSealedRules(state?.seal || defaultSeal());
+    migrateSealedObligations(lock.sealedRules);
     const now = Date.now();
     if (!lock.extensions.evilDice) lock.extensions.evilDice = initEvilDiceRuntime(lock.sealedRules, now);
     if (!lock.extensions.bigBlackDeck) lock.extensions.bigBlackDeck = initBigBlackDeckRuntime(lock.sealedRules, now);
     if (!lock.extensions.obligations) lock.extensions.obligations = initObligationsRuntime(lock.sealedRules, now);
     lock.totals = { ...defaultTotals(), ...(lock.totals || {}) };
     return lock;
+  }
+
+  function migrateSealedObligations(sealedRules) {
+    const ob = sealedRules?.extensions?.obligations;
+    if (!ob) return;
+    const legacyRules = Array.isArray(ob.rules) ? ob.rules : [];
+    if (!Array.isArray(ob.penalties) || !ob.penalties.length) {
+      ob.penalties = normalizeObligationPenalties([], legacyRules);
+    }
+    ob.rules = legacyRules.map(r => ({
+      ...r,
+      id: r.id || uid('obligation'),
+      name: (r.name || 'Obligation').trim(),
+      action: r.action || 'evilDice',
+      regularityMs: Math.max(MINUTE, r.regularityMs || timeObjToMs(r.regularity) || DAY)
+    }));
   }
 
   function deepMerge(target, source) {
@@ -710,22 +731,29 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     e.unlockGamble.penalties.pillory.durationMs = timeObjToMs(e.unlockGamble.penalties.pillory.duration);
     e.unlockGamble.penalties.addVisitors.amount = Math.max(0, Number(e.unlockGamble.penalties.addVisitors.amount) || 0);
 
-    e.obligations = e.obligations || { enabled: false, rules: [] };
+    e.obligations = e.obligations || { enabled: false, rules: [], penalties: [] };
     e.obligations.rules = (e.obligations.rules || []).filter(r => (r.name || '').trim()).map(r => ({
       ...r,
       id: r.id || uid('obligation'),
       name: (r.name || 'Obligation').trim(),
       action: r.action || 'evilDice',
-      regularityMs: Math.max(MINUTE, timeObjToMs(r.regularity) || DAY),
-      windowMs: Math.max(MINUTE, timeObjToMs(r.window) || 12 * HOUR),
-      penalty: normalizeObligationPenalty(r.penalty)
+      regularityMs: Math.max(MINUTE, timeObjToMs(r.regularity) || DAY)
     }));
+    e.obligations.penalties = normalizeObligationPenalties(e.obligations.penalties, e.obligations.rules);
 
     return { features: f, extensions: e };
   }
 
+  function normalizeObligationPenalties(list, legacyRules=[]) {
+    let raw = Array.isArray(list) ? list : [];
+    if (!raw.length) raw = (legacyRules || []).map(r => r.penalty).filter(Boolean);
+    if (!raw.length) raw = [defaultObligationPenalty()];
+    return raw.map(normalizeObligationPenalty);
+  }
+
   function normalizeObligationPenalty(p={}) {
     return {
+      id: p.id || uid('obPenalty'),
       type: p.type || 'addTime',
       amountMs: timeObjToMs(p.amount || { d: 0, h: 2, m: 0 }),
       pilloryDurationMs: timeObjToMs(p.pilloryDuration || { d: 0, h: 1, m: 0 }),
@@ -830,7 +858,13 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     const cfg = sealedRules.extensions.obligations || { enabled: false, rules: [] };
     return {
       enabled: !!cfg.enabled,
-      rules: (cfg.rules || []).map(r => ({ id: r.id, nextAt: now + Math.max(MINUTE, r.regularityMs || DAY), available: false, completed: false, windowEndsAt: null, completedCount: 0, failedCount: 0 }))
+      rules: (cfg.rules || []).map(r => ({
+        id: r.id,
+        nextAt: now + Math.max(MINUTE, r.regularityMs || DAY),
+        completed: false,
+        completedCount: 0,
+        failedCount: 0
+      }))
     };
   }
 
@@ -1270,27 +1304,38 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     const cfg = lock.sealedRules.extensions.obligations;
     const rt = lock.extensions.obligations;
     if (!cfg?.enabled || !rt?.enabled) return;
+    if (!Array.isArray(rt.rules)) rt.rules = [];
+    const anchor = lock.startedAt || lock.createdAt || now;
     for (const ruleCfg of (cfg.rules || [])) {
-      let ruleRt = (rt.rules || []).find(r => r.id === ruleCfg.id);
+      const period = Math.max(MINUTE, ruleCfg.regularityMs || DAY);
+      let ruleRt = rt.rules.find(r => r.id === ruleCfg.id);
       if (!ruleRt) {
-        ruleRt = { id: ruleCfg.id, nextAt: now + Math.max(MINUTE, ruleCfg.regularityMs || DAY), available: false, completed: false, windowEndsAt: null, completedCount: 0, failedCount: 0 };
+        ruleRt = { id: ruleCfg.id, nextAt: anchor + period, completed: false, completedCount: 0, failedCount: 0 };
         rt.rules.push(ruleRt);
       }
-      if (!ruleRt.available && now >= ruleRt.nextAt) {
-        ruleRt.available = true;
-        ruleRt.completed = false;
-        ruleRt.windowEndsAt = now + Math.max(MINUTE, ruleCfg.windowMs || 12 * HOUR);
-        addEvent('obligation_due', 'Obligation due', `${ruleCfg.name} is due.`, 'obligations', { obligationId: ruleCfg.id, action: ruleCfg.action });
-      }
-      if (ruleRt.available && !ruleRt.completed && now > ruleRt.windowEndsAt) {
+      if (!ruleRt.nextAt || ruleRt.nextAt < anchor) ruleRt.nextAt = anchor + period;
+      if (ruleRt.available || ruleRt.windowEndsAt) {
         ruleRt.available = false;
-        ruleRt.completed = false;
-        ruleRt.nextAt = now + Math.max(MINUTE, ruleCfg.regularityMs || DAY);
-        ruleRt.failedCount = (ruleRt.failedCount || 0) + 1;
-        lock.totals.obligationsFailed += 1;
-        addEvent('obligation_failed', 'Obligation failed', `${ruleCfg.name} was not completed.`, 'obligations', { obligationId: ruleCfg.id });
-        applyObligationPenalty(ruleCfg);
+        ruleRt.windowEndsAt = null;
       }
+      let guard = 0;
+      while (now >= ruleRt.nextAt && guard < 50) {
+        const checkedAt = ruleRt.nextAt;
+        if (ruleRt.completed) {
+          ruleRt.completedCount = (ruleRt.completedCount || 0) + 1;
+          lock.totals.obligationsCompleted += 1;
+          addEvent('obligation_completed', 'Obligation completed', `${ruleCfg.name} completed for this period.`, 'obligations', { obligationId: ruleCfg.id, action: ruleCfg.action, checkedAt });
+        } else {
+          ruleRt.failedCount = (ruleRt.failedCount || 0) + 1;
+          lock.totals.obligationsFailed += 1;
+          addEvent('obligation_failed', 'Obligation failed', `${ruleCfg.name} was not completed before the scheduled check.`, 'obligations', { obligationId: ruleCfg.id, checkedAt });
+          applyObligationPenalties(ruleCfg);
+        }
+        ruleRt.completed = false;
+        ruleRt.nextAt += period;
+        guard += 1;
+      }
+      if (guard >= 50 && now >= ruleRt.nextAt) ruleRt.nextAt = now + period;
     }
   }
 
@@ -1299,26 +1344,39 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     const cfg = lock.sealedRules.extensions.obligations;
     const rt = lock.extensions.obligations;
     if (!cfg?.enabled || !rt?.enabled) return;
-    let completed = 0;
     const now = Date.now();
+    processObligations(lock, now);
+    let completed = 0;
+    const anchor = lock.startedAt || lock.createdAt || now;
     for (const ruleCfg of (cfg.rules || [])) {
       if (ruleCfg.action !== action) continue;
-      const ruleRt = (rt.rules || []).find(r => r.id === ruleCfg.id);
-      if (!ruleRt?.available || ruleRt.completed || now > ruleRt.windowEndsAt) continue;
-      ruleRt.available = false;
+      const period = Math.max(MINUTE, ruleCfg.regularityMs || DAY);
+      let ruleRt = (rt.rules || []).find(r => r.id === ruleCfg.id);
+      if (!ruleRt) {
+        ruleRt = { id: ruleCfg.id, nextAt: anchor + period, completed: false, completedCount: 0, failedCount: 0 };
+        rt.rules.push(ruleRt);
+      }
+      if (ruleRt.completed) continue;
       ruleRt.completed = true;
-      ruleRt.nextAt = now + Math.max(MINUTE, ruleCfg.regularityMs || DAY);
-      ruleRt.windowEndsAt = null;
-      ruleRt.completedCount = (ruleRt.completedCount || 0) + 1;
-      lock.totals.obligationsCompleted += 1;
       completed += 1;
-      addEvent('obligation_completed', 'Obligation completed', `${ruleCfg.name} completed.`, 'obligations', { obligationId: ruleCfg.id, action });
+      addEvent('obligation_marked', 'Obligation marked complete', `${ruleCfg.name} will pass at the next scheduled check.`, 'obligations', { obligationId: ruleCfg.id, action });
     }
-    if (completed) toast('Obligation completed', `${completed} obligation${completed>1?'s':''} satisfied.`);
+    if (completed) toast('Obligation completed', `${completed} obligation${completed>1?'s':''} marked for this period.`);
   }
 
-  function applyObligationPenalty(ruleCfg) {
-    const p = ruleCfg.penalty || {};
+  function applyObligationPenalties(ruleCfg) {
+    const cfg = rules()?.extensions?.obligations || {};
+    const penalties = Array.isArray(cfg.penalties) ? cfg.penalties : [];
+    const lock = getLock(); if (!lock) return;
+    if (!penalties.length) {
+      toast('Obligation failed', `${ruleCfg.name}: no shared penalties configured.`);
+      return;
+    }
+    for (const p of penalties) applySingleObligationPenalty(ruleCfg, p);
+    toast('Obligation failed', `${ruleCfg.name}: ${penalties.length} shared penalt${penalties.length===1?'y':'ies'} applied.`);
+  }
+
+  function applySingleObligationPenalty(ruleCfg, p={}) {
     const lock = getLock(); if (!lock) return;
     if (p.type === 'addTime') addTime(p.amountMs || 0, 'obligations', `Obligation penalty: ${ruleCfg.name}`);
     else if (p.type === 'freeze') freezeLock('obligations', `Obligation failed: ${ruleCfg.name}.`);
@@ -1329,7 +1387,6 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
       lock.points = Math.max(0, (lock.points || 0) - lost);
       addEvent('points_lost', 'Points lost', `${lost} points lost.`, 'obligations', { points: lost });
     }
-    toast('Obligation failed', `${ruleCfg.name}: penalty applied.`);
   }
 
   function startPillory(durationMs, source='pillory') {
@@ -1878,13 +1935,15 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
   function renderObligationsAction(lock) {
     const cfg = rules().extensions.obligations;
     const rt = lock.extensions.obligations;
+    const penalties = (cfg.penalties || []).map(obligationPenaltyLabel).join(', ') || 'No shared penalties';
     const rows = (cfg.rules || []).map(rule => {
       const r = (rt.rules || []).find(x => x.id === rule.id) || {};
-      const status = r.available ? `Due now — ${formatMs((r.windowEndsAt || Date.now()) - Date.now())} left` : `Next due in ${formatMs((r.nextAt || Date.now()) - Date.now())}`;
-      const cls = r.available ? 'gold' : 'muted';
-      return `<div class="sub-panel"><h4>${esc(rule.name)}</h4><p class="${cls}">${esc(status)}</p><p class="muted">Action: ${esc(obligationActionLabel(rule.action))}. Failure: ${esc(obligationPenaltyLabel(rule.penalty))}.</p></div>`;
+      const status = `Next check in ${formatMs((r.nextAt || Date.now()) - Date.now())}`;
+      const periodStatus = r.completed ? 'Completed for this period' : 'Not completed this period yet';
+      const cls = r.completed ? 'gold' : 'muted';
+      return `<div class="sub-panel"><h4>${esc(rule.name)}</h4><p class="muted">${esc(status)}</p><p class="${cls}">${esc(periodStatus)}</p><p class="muted">Action: ${esc(obligationActionLabel(rule.action))}. Regularity: ${esc(formatMs(rule.regularityMs || DAY))}.</p></div>`;
     }).join('') || '<div class="empty">No obligations configured.</div>';
-    return `<div class="card span-12"><h3>Obligations</h3>${rows}</div>`;
+    return `<div class="card span-12"><h3>Obligations</h3><p class="muted">Shared failure penalties: ${esc(penalties)}</p>${rows}</div>`;
   }
 
   function renderSeal() {
@@ -2000,13 +2059,19 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
 
   function renderObligationsSettings() {
     const o = state.seal.extensions.obligations;
+    if (!Array.isArray(o.penalties)) o.penalties = [defaultObligationPenalty()];
+    const penalties = o.penalties.map((p, i) => renderObligationPenaltySettings(p, i)).join('');
     const rows = (o.rules || []).map((r, i) => renderObligationRuleSettings(r, i)).join('');
-    return `<p class="muted">Create mandatory actions. If a due action is not completed inside its window, the assigned penalty triggers.</p>${rows || '<div class="empty">No obligations yet.</div>'}<div class="btn-row"><button class="btn" data-action="add-obligation">Add Obligation</button></div>`;
+    return `<p class="muted">Create mandatory actions. Regularity is checked from the lock start time. Example: if the lock starts at 8:23 PM and regularity is 1 day, CageKeeper checks every day at 8:23 PM whether the action happened since the previous check.</p><div class="hr"></div><h4>Shared Failure Penalties</h4><p class="muted">If any obligation fails, every penalty below applies. If two obligations fail, the shared penalties apply once for each failed obligation.</p>${penalties || '<div class="empty">No shared penalties configured.</div>'}<div class="btn-row"><button class="btn" data-action="add-obligation-penalty">Add Penalty</button></div><div class="hr"></div><h4>Obligation Rules</h4>${rows || '<div class="empty">No obligations yet.</div>'}<div class="btn-row"><button class="btn" data-action="add-obligation">Add Obligation</button></div>`;
   }
 
   function renderObligationRuleSettings(r, i) {
-    const p = r.penalty || defaultObligationRule().penalty;
-    return `<div class="sub-panel obligation-rule"><div class="section-title"><div><h4>${esc(r.name || 'Obligation')}</h4><p>Rule ${i + 1}</p></div><button class="btn danger" data-action="remove-obligation" data-index="${i}">Remove</button></div><div class="form-grid"><div class="field half"><label class="label">Name</label><input type="text" data-bind="extensions.obligations.rules.${i}.name" value="${escAttr(r.name || '')}"></div><div class="field half"><label class="label">Required Action</label><select data-bind="extensions.obligations.rules.${i}.action">${obligationActionOptions(r.action)}</select></div></div><div class="split" style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.regularity`,'Regularity',r.regularity)}${timeStepper(`extensions.obligations.rules.${i}.window`,'Completion Window',r.window)}</div><div class="hr"></div><h4>Failure Penalty</h4><div class="form-grid"><div class="field third"><label class="label">Penalty Type</label><select data-bind="extensions.obligations.rules.${i}.penalty.type">${obligationPenaltyOptions(p.type)}</select></div></div>${renderObligationPenaltyValue(i, p)}</div>`;
+    return `<div class="sub-panel obligation-rule"><div class="section-title"><div><h4>${esc(r.name || 'Obligation')}</h4><p>Rule ${i + 1}</p></div><button class="btn danger" data-action="remove-obligation" data-index="${i}">Remove</button></div><div class="form-grid"><div class="field half"><label class="label">Name</label><input type="text" data-bind="extensions.obligations.rules.${i}.name" value="${escAttr(r.name || '')}"></div><div class="field half"><label class="label">Required Action</label><select data-bind="extensions.obligations.rules.${i}.action">${obligationActionOptions(r.action)}</select></div></div><div style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.regularity`,'Regularity Check',r.regularity)}</div></div>`;
+  }
+
+  function renderObligationPenaltySettings(p, i) {
+    p = p || defaultObligationPenalty();
+    return `<div class="sub-panel obligation-rule"><div class="section-title"><div><h4>${esc(obligationPenaltyLabel(p))}</h4><p>Penalty ${i + 1}</p></div><button class="btn danger" data-action="remove-obligation-penalty" data-index="${i}">Remove</button></div><div class="form-grid"><div class="field third"><label class="label">Penalty Type</label><select data-bind="extensions.obligations.penalties.${i}.type">${obligationPenaltyOptions(p.type)}</select></div></div>${renderObligationPenaltyValue(i, p)}</div>`;
   }
 
   function obligationActionOptions(current) {
@@ -2026,11 +2091,11 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
   }
 
   function renderObligationPenaltyValue(i, p) {
-    if (p.type === 'pillory') return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.penalty.pilloryDuration`,'Pillory Duration',p.pilloryDuration)}</div>`;
-    if (p.type === 'addVisitors') return `<div class="field third" style="margin-top:14px"><label class="label">Visitors</label><input type="number" min="0" data-bind="extensions.obligations.rules.${i}.penalty.visitors" value="${p.visitors || 0}"></div>`;
-    if (p.type === 'losePoints') return `<div class="field third" style="margin-top:14px"><label class="label">Points</label><input type="number" min="0" data-bind="extensions.obligations.rules.${i}.penalty.points" value="${p.points || 0}"></div>`;
+    if (p.type === 'pillory') return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.penalties.${i}.pilloryDuration`,'Pillory Duration',p.pilloryDuration)}</div>`;
+    if (p.type === 'addVisitors') return `<div class="field third" style="margin-top:14px"><label class="label">Visitors</label><input type="number" min="0" data-bind="extensions.obligations.penalties.${i}.visitors" value="${p.visitors || 0}"></div>`;
+    if (p.type === 'losePoints') return `<div class="field third" style="margin-top:14px"><label class="label">Points</label><input type="number" min="0" data-bind="extensions.obligations.penalties.${i}.points" value="${p.points || 0}"></div>`;
     if (p.type === 'freeze') return `<p class="muted" style="margin-top:12px">Freeze must be enabled as a feature for this penalty to apply.</p>`;
-    return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.penalty.amount`,'Amount',p.amount)}</div>`;
+    return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.penalties.${i}.amount`,'Amount',p.amount)}</div>`;
   }
 
   function obligationPenaltyLabel(p={}) {
@@ -2209,6 +2274,8 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     if (action === 'toggle-bbd-card') return toggleBigBlackDeckCard(btn.dataset.cardId);
     if (action === 'add-obligation') return addObligation();
     if (action === 'remove-obligation') return removeObligation(Number(btn.dataset.index));
+    if (action === 'add-obligation-penalty') return addObligationPenalty();
+    if (action === 'remove-obligation-penalty') return removeObligationPenalty(Number(btn.dataset.index));
   }
 
   function readStepperFromDom(path) {
@@ -2276,6 +2343,21 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
   function removeObligation(i) {
     state.seal.extensions.obligations.rules.splice(i,1);
     if (!state.seal.extensions.obligations.rules.length) state.seal.extensions.obligations.rules.push(defaultObligationRule());
+    saveState(); render();
+  }
+
+  function addObligationPenalty() {
+    const o = state.seal.extensions.obligations;
+    if (!Array.isArray(o.penalties)) o.penalties = [];
+    o.penalties.push(defaultObligationPenalty());
+    saveState(); render();
+  }
+
+  function removeObligationPenalty(i) {
+    const o = state.seal.extensions.obligations;
+    if (!Array.isArray(o.penalties)) o.penalties = [];
+    o.penalties.splice(i,1);
+    if (!o.penalties.length) o.penalties.push(defaultObligationPenalty());
     saveState(); render();
   }
 
