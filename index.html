@@ -135,7 +135,7 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
   'use strict';
 
   const STORAGE_KEY = 'cagekeeper_v020_state';
-  const VERSION = '0.2.5.3';
+  const VERSION = '0.2.5.4';
   const DAY = 86400000;
   const HOUR = 3600000;
   const MINUTE = 60000;
@@ -176,6 +176,7 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
       max: { d: 0, h: 2, m: 0 }
     },
     shareDuration: { d: 0, h: 1, m: 0 },
+    shareLocation: 'chatroom',
     features: {
       freeze: { enabled: true },
       hygiene: {
@@ -1862,7 +1863,8 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
       const st = s.eventStats || { visitors: 0, addVotes: 0, removeVotes: 0, netMs: 0 };
       return `<div class="card span-12"><h3>Link Shared</h3><div class="stats-grid">${stat('Location', SHARE_PRESETS[s.location]?.label || '—')}${stat('Visitors', `${s.visitors}/${s.requiredVisitors}`)}${stat('Add votes', st.addVotes)}${stat('Remove votes', st.removeVotes)}${stat('Net', `${st.netMs >= 0 ? '+' : '-'}${formatMs(Math.abs(st.netMs))}`)}${stat('Time left', formatMs(s.endsAt - Date.now()))}</div></div>`;
     }
-    return `<div class="card span-12"><h3>Share Link</h3><p>Choose how long to share and where to simulate traffic.</p><div class="form-grid"><div class="field third"><label class="label">Location</label><select id="shareLocation"><option value="chatroom">Chatroom</option><option value="forum">Forum</option></select></div><div class="field span-8">${timeStepper('shareDuration','Share Duration',state.seal.shareDuration || {d:0,h:1,m:0})}</div></div><div class="btn-row"><button class="btn primary" data-action="start-share">Start Sharing</button></div></div>`;
+    const selectedLocation = SHARE_PRESETS[state.seal.shareLocation] ? state.seal.shareLocation : 'chatroom';
+    return `<div class="card span-12"><h3>Share Link</h3><p>Choose how long to share and where to simulate traffic.</p><div class="form-grid"><div class="field third"><label class="label">Location</label><select id="shareLocation" data-bind="shareLocation"><option value="chatroom" ${selectedLocation==='chatroom'?'selected':''}>Chatroom</option><option value="forum" ${selectedLocation==='forum'?'selected':''}>Forum</option></select></div><div class="field span-8">${timeStepper('shareDuration','Share Duration',state.seal.shareDuration || {d:0,h:1,m:0})}</div></div><div class="btn-row"><button class="btn primary" data-action="start-share">Start Sharing</button></div></div>`;
   }
 
   function renderRewardStoreCard(lock) {
@@ -2257,8 +2259,11 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     if (action === 'task-fail') return resolveTask('fail');
     if (action === 'roll-unlock-gamble') return rollUnlockGamble();
     if (action === 'start-share') {
-      const loc = document.getElementById('shareLocation')?.value || 'chatroom';
+      const domLoc = document.getElementById('shareLocation')?.value;
+      const loc = SHARE_PRESETS[domLoc] ? domLoc : (SHARE_PRESETS[state.seal.shareLocation] ? state.seal.shareLocation : 'chatroom');
+      state.seal.shareLocation = loc;
       const dur = timeObjToMs(getPath(state.seal, 'shareDuration') || readStepperFromDom('shareDuration'));
+      saveState();
       return startShareLink(loc, dur);
     }
     if (action === 'buy-remove-time') return buyStoreItem('removeTime');
