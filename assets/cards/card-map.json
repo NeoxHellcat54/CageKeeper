@@ -1,0 +1,98 @@
+[
+  {
+    "id": "mercy-spark",
+    "name": "Mercy Spark",
+    "effect": "Remove 30 minutes",
+    "file": "assets/cards/mercy-spark.png"
+  },
+  {
+    "id": "key-fragment",
+    "name": "Key Fragment",
+    "effect": "Remove 1 hour",
+    "file": "assets/cards/key-fragment.png"
+  },
+  {
+    "id": "iron-minute",
+    "name": "Iron Minute",
+    "effect": "Add 30 minutes",
+    "file": "assets/cards/iron-minute.png"
+  },
+  {
+    "id": "locked-hour",
+    "name": "Locked Hour",
+    "effect": "Add 1 hour",
+    "file": "assets/cards/locked-hour.png"
+  },
+  {
+    "id": "heavy-chain",
+    "name": "Heavy Chain",
+    "effect": "Add 2 hours",
+    "file": "assets/cards/heavy-chain.png"
+  },
+  {
+    "id": "cruel-sentence",
+    "name": "Cruel Sentence",
+    "effect": "Add 4 hours",
+    "file": "assets/cards/cruel-sentence.png"
+  },
+  {
+    "id": "frozen-key",
+    "name": "Frozen Key",
+    "effect": "Freeze",
+    "file": "assets/cards/frozen-key.png"
+  },
+  {
+    "id": "thawing-seal",
+    "name": "Thawing Seal",
+    "effect": "Unfreeze",
+    "file": "assets/cards/thawing-seal.png"
+  },
+  {
+    "id": "unstable-seal",
+    "name": "Unstable Seal",
+    "effect": "Freeze / Unfreeze",
+    "file": "assets/cards/unstable-seal.png"
+  },
+  {
+    "id": "public-notice",
+    "name": "Public Notice",
+    "effect": "Pillory 30 minutes",
+    "file": "assets/cards/public-notice.png"
+  },
+  {
+    "id": "public-sentence",
+    "name": "Public Sentence",
+    "effect": "Pillory 1 hour",
+    "file": "assets/cards/public-sentence.png"
+  },
+  {
+    "id": "more-witnesses",
+    "name": "More Witnesses",
+    "effect": "Add 5 required visitors",
+    "file": "assets/cards/more-witnesses.png"
+  },
+  {
+    "id": "crowded-room",
+    "name": "Crowded Room",
+    "effect": "Add 10 required visitors",
+    "file": "assets/cards/crowded-room.png"
+  },
+  {
+    "id": "fewer-witnesses",
+    "name": "Fewer Witnesses",
+    "effect": "Remove 5 required visitors",
+    "file": "assets/cards/fewer-witnesses.png"
+  },
+  {
+    "id": "blank-card",
+    "name": "Blank Card",
+    "effect": "Nothing",
+    "file": "assets/cards/blank-card.png"
+  },
+  {
+    "id": "card-back",
+    "name": "Card Back",
+    "effect": "Face-down back",
+    "file": "assets/cards/card-back.png"
+  }
+]
