@@ -130,12 +130,12 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
 <body>
   <div id="app" class="boot"><div><h1>CageKeeper</h1><small>Loading the vault…</small></div></div>
   <script id="cagekeeper-inline-app">
-/* CageKeeper v0.2.5.2 Obligations Regularity Fix */
+/* CageKeeper v0.2.5.3 Persistence Fix */
 (() => {
   'use strict';
 
   const STORAGE_KEY = 'cagekeeper_v020_state';
-  const VERSION = '0.2.5.2';
+  const VERSION = '0.2.5.3';
   const DAY = 86400000;
   const HOUR = 3600000;
   const MINUTE = 60000;
@@ -301,7 +301,7 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
     };
   }
 
-  let state = loadState();
+  let state;
   let toastQueue = [];
   let tickInterval = null;
 
@@ -2389,6 +2389,10 @@ input[type="text"],input[type="number"],select,textarea{width:100%;border:1px so
 
   function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function escAttr(s) { return esc(s).replace(/'/g, '&#39;'); }
+  // Load persisted state only after all constants/functions are initialized.
+  // This prevents migration from touching later-defined constants during page reload.
+  state = loadState();
+
   // Service worker/cache cleanup: prevents GitHub Pages from showing stale PWA files while developing.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(reg => reg.unregister())).catch(() => {});
