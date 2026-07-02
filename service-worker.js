@@ -1,17 +1,26 @@
-// CageKeeper v0.2.3: development no-cache service worker.
-// It does not cache or navigate clients. It only helps remove older cache-first workers.
-self.addEventListener('install', event => {
-  self.skipWaiting();
-});
-self.addEventListener('activate', event => {
-  event.waitUntil((async () => {
-    try {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(key => caches.delete(key)));
-    } catch (e) {}
-    try { await self.registration.unregister(); } catch (e) {}
-  })());
-});
-self.addEventListener('fetch', event => {
-  event.respondWith(fetch(event.request));
-});
+{
+  "name": "CageKeeper",
+  "short_name": "CageKeeper",
+  "description": "Self-lock vault PWA",
+  "start_url": "./index.html?v=0.2.5",
+  "display": "standalone",
+  "background_color": "#030305",
+  "theme_color": "#030305",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "scope": "./",
+  "version": "0.2.5"
+}

@@ -1,25 +1,2185 @@
-{
-  "name": "CageKeeper",
-  "short_name": "CageKeeper",
-  "description": "Self-lock vault PWA",
-  "start_url": "./index.html?v=0.2.3",
-  "display": "standalone",
-  "background_color": "#030305",
-  "theme_color": "#030305",
-  "orientation": "portrait-primary",
-  "icons": [
-    {
-      "src": "assets/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+/* CageKeeper v0.2.5 Evil Dice + Big Black Deck + Obligations */
+(() => {
+  'use strict';
+
+  const STORAGE_KEY = 'cagekeeper_v020_state';
+  const VERSION = '0.2.5';
+  const DAY = 86400000;
+  const HOUR = 3600000;
+  const MINUTE = 60000;
+
+  const STORE = {
+    removeTime: { cost: 100, amountMs: 30 * MINUTE },
+    unfreeze: { cost: 250 },
+    reduceVisitors: { cost: 150, amount: 5 }
+  };
+
+  const EVIL_DICE_ODDS = { removeTime: 8, pillory: 6, freeze: 6, addTime: 80 };
+
+  const BIG_BLACK_DECK_CARDS = [
+    { id: 'mercy-spark', name: 'Mercy Spark', effect: 'removeTime', amountMs: 30 * MINUTE, text: 'Remove 30 minutes', img: 'assets/cards/mercy-spark.png' },
+    { id: 'key-fragment', name: 'Key Fragment', effect: 'removeTime', amountMs: HOUR, text: 'Remove 1 hour', img: 'assets/cards/key-fragment.png' },
+    { id: 'iron-minute', name: 'Iron Minute', effect: 'addTime', amountMs: 30 * MINUTE, text: 'Add 30 minutes', img: 'assets/cards/iron-minute.png' },
+    { id: 'locked-hour', name: 'Locked Hour', effect: 'addTime', amountMs: HOUR, text: 'Add 1 hour', img: 'assets/cards/locked-hour.png' },
+    { id: 'heavy-chain', name: 'Heavy Chain', effect: 'addTime', amountMs: 2 * HOUR, text: 'Add 2 hours', img: 'assets/cards/heavy-chain.png' },
+    { id: 'cruel-sentence', name: 'Cruel Sentence', effect: 'addTime', amountMs: 4 * HOUR, text: 'Add 4 hours', img: 'assets/cards/cruel-sentence.png' },
+    { id: 'frozen-key', name: 'Frozen Key', effect: 'freeze', text: 'Freeze', img: 'assets/cards/frozen-key.png' },
+    { id: 'thawing-seal', name: 'Thawing Seal', effect: 'unfreeze', text: 'Unfreeze', img: 'assets/cards/thawing-seal.png' },
+    { id: 'unstable-seal', name: 'Unstable Seal', effect: 'freezeUnfreeze', text: 'Freeze / Unfreeze', img: 'assets/cards/unstable-seal.png' },
+    { id: 'public-notice', name: 'Public Notice', effect: 'pillory', durationMs: 30 * MINUTE, text: 'Pillory 30 minutes', img: 'assets/cards/public-notice.png' },
+    { id: 'public-sentence', name: 'Public Sentence', effect: 'pillory', durationMs: HOUR, text: 'Pillory 1 hour', img: 'assets/cards/public-sentence.png' },
+    { id: 'more-witnesses', name: 'More Witnesses', effect: 'addVisitors', amount: 5, text: 'Add 5 required visitors', img: 'assets/cards/more-witnesses.png' },
+    { id: 'crowded-room', name: 'Crowded Room', effect: 'addVisitors', amount: 10, text: 'Add 10 required visitors', img: 'assets/cards/crowded-room.png' },
+    { id: 'fewer-witnesses', name: 'Fewer Witnesses', effect: 'removeVisitors', amount: 5, text: 'Remove 5 required visitors', img: 'assets/cards/fewer-witnesses.png' },
+    { id: 'blank-card', name: 'Blank Card', effect: 'nothing', text: 'Nothing', img: 'assets/cards/blank-card.png' }
+  ];
+  const BIG_BLACK_DECK_CARD_BACK = 'assets/cards/card-back.png';
+  const DEFAULT_BIG_BLACK_DECK_IDS = BIG_BLACK_DECK_CARDS.map(c => c.id);
+
+  const EXT_KEYS = ['dailyCheckIn','dice','evilDice','wheel','bigBlackDeck','tasks','randomEvents','unlockGamble','rewardStore','obligations'];
+
+  const defaultSeal = () => ({
+    duration: {
+      min: { d: 0, h: 1, m: 0 },
+      max: { d: 0, h: 2, m: 0 }
     },
-    {
-      "src": "assets/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+    shareDuration: { d: 0, h: 1, m: 0 },
+    features: {
+      freeze: { enabled: true },
+      hygiene: {
+        enabled: false,
+        regularity: { d: 1, h: 0, m: 0 },
+        allowed: { d: 0, h: 0, m: 10 },
+        freezeDuringOpening: true,
+        penalties: {
+          addTime: { enabled: true, amount: { d: 0, h: 1, m: 0 } },
+          pillory: { enabled: false, duration: { d: 0, h: 0, m: 30 } },
+          freeze: { enabled: false }
+        }
+      },
+      pillory: {
+        enabled: false,
+        timePerVote: { d: 0, h: 0, m: 30 }
+      },
+      shareLink: {
+        enabled: false,
+        addPerVote: { d: 0, h: 0, m: 30 },
+        removePerVote: { d: 0, h: 0, m: 10 },
+        visitorsRequired: 50
+      }
+    },
+    extensions: {
+      dailyCheckIn: {
+        enabled: false,
+        regularity: { d: 1, h: 0, m: 0 },
+        window: { d: 0, h: 12, m: 0 },
+        penalties: {
+          addTime: { enabled: true, amount: { d: 0, h: 1, m: 0 } },
+          pillory: { enabled: false, duration: { d: 0, h: 0, m: 30 } },
+          freeze: { enabled: false }
+        }
+      },
+      dice: {
+        enabled: false,
+        mode: 'nonCumulative',
+        regularity: { d: 1, h: 0, m: 0 },
+        diceType: 6,
+        multiplier: { d: 0, h: 0, m: 30 }
+      },
+      evilDice: {
+        enabled: false,
+        mode: 'nonCumulative',
+        regularity: { d: 1, h: 0, m: 0 }
+      },
+      wheel: {
+        enabled: false,
+        mode: 'cumulative',
+        regularity: { d: 1, h: 0, m: 0 },
+        slices: [
+          { id: uid('slice'), label: '+30m', effect: 'addTime', amount: { d: 0, h: 0, m: 30 } },
+          { id: uid('slice'), label: '-30m', effect: 'removeTime', amount: { d: 0, h: 0, m: 30 } },
+          { id: uid('slice'), label: 'Add / Remove 1h', effect: 'addRemoveTime', amount: { d: 0, h: 1, m: 0 } },
+          { id: uid('slice'), label: 'Freeze / Unfreeze', effect: 'freezeUnfreeze' },
+          { id: uid('slice'), label: 'Pillory 30m', effect: 'pillory', duration: { d: 0, h: 0, m: 30 } }
+        ]
+      },
+      bigBlackDeck: {
+        enabled: false,
+        mode: 'nonCumulative',
+        regularity: { d: 1, h: 0, m: 0 },
+        handSize: 3,
+        selectedCardIds: DEFAULT_BIG_BLACK_DECK_IDS.slice()
+      },
+      tasks: {
+        enabled: false,
+        mode: 'nonCumulative',
+        regularity: { d: 1, h: 0, m: 0 },
+        taskList: [
+          { id: uid('task'), name: 'Complete a task', description: '' }
+        ],
+        penalties: {
+          addTime: { enabled: true, amount: { d: 0, h: 1, m: 0 } },
+          pillory: { enabled: false, duration: { d: 0, h: 0, m: 30 } },
+          freeze: { enabled: false }
+        }
+      },
+      randomEvents: {
+        enabled: false,
+        difficulty: 'normal'
+      },
+      unlockGamble: {
+        enabled: false,
+        unlockWeight: 1,
+        deniedWeight: 4,
+        penalties: {
+          addTime: { enabled: true, amount: { d: 0, h: 4, m: 0 } },
+          pillory: { enabled: false, duration: { d: 0, h: 0, m: 30 } },
+          freeze: { enabled: false },
+          addVisitors: { enabled: false, amount: 10 }
+        }
+      },
+      rewardStore: {
+        enabled: false
+      },
+      obligations: {
+        enabled: false,
+        rules: [defaultObligationRule()]
+      }
     }
-  ],
-  "scope": "./"
-}
+  });
+
+  function defaultObligationRule() {
+    return {
+      id: uid('obligation'),
+      name: 'Daily Evil Dice',
+      action: 'evilDice',
+      regularity: { d: 1, h: 0, m: 0 },
+      window: { d: 0, h: 12, m: 0 },
+      penalty: {
+        type: 'addTime',
+        amount: { d: 0, h: 2, m: 0 },
+        pilloryDuration: { d: 0, h: 1, m: 0 },
+        visitors: 5,
+        points: 100
+      }
+    };
+  }
+
+  let state = loadState();
+  let toastQueue = [];
+  let tickInterval = null;
+
+  function uid(prefix='id') {
+    return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return normalizeState(parsed);
+      }
+    } catch (err) {
+      console.warn('Failed to load state', err);
+    }
+    return normalizeState({ version: VERSION, tab: 'dashboard', seal: defaultSeal(), activeLock: null, archive: [] });
+  }
+
+  function normalizeState(s) {
+    const base = { version: VERSION, tab: 'dashboard', seal: defaultSeal(), activeLock: null, archive: [] };
+    const merged = deepMerge(base, s || {});
+    if (!merged.seal) merged.seal = defaultSeal();
+    if (!Array.isArray(merged.archive)) merged.archive = [];
+    if (!merged.tab) merged.tab = 'dashboard';
+    if (merged.activeLock) migrateActiveLock(merged.activeLock);
+    return merged;
+  }
+
+  function migrateActiveLock(lock) {
+    if (!lock) return lock;
+    if (!lock.pillory || typeof lock.pillory !== 'object') lock.pillory = initPilloryRuntime();
+    if (!Array.isArray(lock.pillory.activePillories)) {
+      const oldP = lock.pillory;
+      lock.pillory = initPilloryRuntime();
+      if (oldP && oldP.active) {
+        lock.pillory.activePillories.push({
+          id: oldP.id || uid('pillory'),
+          active: true,
+          startedAt: oldP.startedAt || Date.now(),
+          endsAt: oldP.endsAt || Date.now(),
+          votes: oldP.votes || 0,
+          addedMs: oldP.addedMs || 0,
+          queue: Array.isArray(oldP.queue) ? oldP.queue : [],
+          intensity: oldP.intensity || 'unknown',
+          source: oldP.source || 'pillory',
+          summaryLogged: !!oldP.summaryLogged
+        });
+        lock.pillory.active = true;
+      }
+    }
+    if (lock.shareLink?.locations) {
+      const now = Date.now();
+      lock.shareLink.locations.chatroom = normalizeShareLocation(lock.shareLink.locations.chatroom, 'chatroom', now);
+      lock.shareLink.locations.forum = normalizeShareLocation(lock.shareLink.locations.forum, 'forum', now);
+      delete lock.shareLink.locations.socialFeed;
+      delete lock.shareLink.locations.privateGroup;
+    }
+    lock.extensions = lock.extensions || {};
+    lock.sealedRules = lock.sealedRules || buildSealedRules(state?.seal || defaultSeal());
+    const now = Date.now();
+    if (!lock.extensions.evilDice) lock.extensions.evilDice = initEvilDiceRuntime(lock.sealedRules, now);
+    if (!lock.extensions.bigBlackDeck) lock.extensions.bigBlackDeck = initBigBlackDeckRuntime(lock.sealedRules, now);
+    if (!lock.extensions.obligations) lock.extensions.obligations = initObligationsRuntime(lock.sealedRules, now);
+    lock.totals = { ...defaultTotals(), ...(lock.totals || {}) };
+    return lock;
+  }
+
+  function deepMerge(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    const out = Array.isArray(target) ? [...target] : { ...target };
+    for (const [key, value] of Object.entries(source)) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+        out[key] = deepMerge(target[key], value);
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('save failed', err); }
+  }
+
+  function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+  function timeObjToMs(t) {
+    if (!t) return 0;
+    return Math.max(0, (Number(t.d)||0) * DAY + (Number(t.h)||0) * HOUR + (Number(t.m)||0) * MINUTE);
+  }
+
+  function msToParts(ms) {
+    ms = Math.max(0, Math.floor(ms || 0));
+    const d = Math.floor(ms / DAY); ms -= d * DAY;
+    const h = Math.floor(ms / HOUR); ms -= h * HOUR;
+    const m = Math.floor(ms / MINUTE); ms -= m * MINUTE;
+    const s = Math.floor(ms / 1000);
+    return { d, h, m, s };
+  }
+
+  function formatMs(ms, opts={}) {
+    const p = msToParts(ms);
+    const parts = [];
+    if (p.d || opts.full) parts.push(`${p.d}d`);
+    if (p.h || p.d || opts.full) parts.push(`${p.h}h`);
+    if (p.m || p.h || p.d || opts.full) parts.push(`${p.m}m`);
+    if (!parts.length) parts.push(`${p.s}s`);
+    return parts.join(' ');
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function clampNum(n, min, max) {
+    n = Number(n);
+    if (!Number.isFinite(n)) n = min;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  function randFloat(min, max) { return Math.random() * (max - min) + min; }
+  function sample(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function poisson(lambda) {
+    lambda = Math.max(0, lambda);
+    if (lambda === 0) return 0;
+    if (lambda < 35) {
+      const L = Math.exp(-lambda);
+      let k = 0, p = 1;
+      do { k++; p *= Math.random(); } while (p > L);
+      return k - 1;
+    }
+    // Normal approximation for large lambdas.
+    const z = Math.sqrt(-2 * Math.log(Math.random())) * Math.cos(2 * Math.PI * Math.random());
+    return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * z));
+  }
+
+  function chance(percent) { return Math.random() * 100 < percent; }
+
+  function navigate(tab) {
+    if (tab === 'seal' && state.activeLock) tab = 'dashboard';
+    state.tab = tab;
+    saveState();
+    render();
+  }
+
+  function getLock() { return state.activeLock; }
+  function rules() { return state.activeLock?.sealedRules || null; }
+
+  function defaultTotals() {
+    return {
+      timeAddedMs: 0,
+      timeRemovedMs: 0,
+      totalFrozenMs: 0,
+      freezeCount: 0,
+      hygieneOpenings: 0,
+      hygieneExceeded: 0,
+      pilloryEvents: 0,
+      pilloryVotes: 0,
+      pilloryTimeAddedMs: 0,
+      shareEvents: 0,
+      shareVisitors: 0,
+      shareAddVotes: 0,
+      shareRemoveVotes: 0,
+      shareNetTimeMs: 0,
+      tasksCompleted: 0,
+      tasksFailed: 0,
+      dailyCheckIns: 0,
+      dailyMissed: 0,
+      diceRolls: 0,
+      wheelSpins: 0,
+      randomEvents: 0,
+      unlockGambleRolls: 0,
+      unlockGambleDenied: 0,
+      evilDiceRolls: 0,
+      evilDiceTimeAddedMs: 0,
+      evilDiceTimeRemovedMs: 0,
+      bigBlackDeckHands: 0,
+      bigBlackDeckCardsPicked: 0,
+      obligationsCompleted: 0,
+      obligationsFailed: 0
+    };
+  }
+
+  function addEvent(type, title, message, source='core', metadata={}) {
+    const lock = getLock();
+    if (!lock) return;
+    lock.timeline.unshift({ id: uid('event'), timestamp: Date.now(), type, title, message, source, metadata });
+    if (lock.timeline.length > 1000) lock.timeline.length = 1000;
+  }
+
+  function toast(title, message='') {
+    toastQueue.push({ id: uid('toast'), title, message, createdAt: Date.now() });
+    if (toastQueue.length > 4) toastQueue.shift();
+    setTimeout(() => { toastQueue = toastQueue.slice(1); renderToasts(); }, 3600);
+    renderToasts();
+  }
+
+  function remainingMs(lock=getLock()) {
+    if (!lock) return 0;
+    if (lock.status === 'completed') return 0;
+    if (lock.freeze?.active) return Math.max(0, lock.freeze.remainingMsAtFreeze || 0);
+    if (lock.hygiene?.active && lock.hygiene.freezeDuringOpening) return Math.max(0, lock.hygiene.remainingMsAtOpen || 0);
+    return Math.max(0, (lock.currentUnlockAt || Date.now()) - Date.now());
+  }
+
+  function setExpiredIfNeeded(lock=getLock()) {
+    if (!lock || lock.status === 'completed') return;
+    if (lock.freeze?.active) { lock.status = 'frozen'; return; }
+    if (remainingMs(lock) <= 0 && lock.status !== 'expired') {
+      lock.status = 'expired';
+      addEvent('lock_expired', 'Timer expired', 'The lock timer reached zero.', 'core');
+    } else if (remainingMs(lock) > 0 && lock.status === 'expired') {
+      lock.status = 'active';
+    } else if (!lock.freeze?.active && lock.status === 'frozen') {
+      lock.status = 'active';
+    }
+  }
+
+  function addTime(ms, source='core', title='Time added', detail='') {
+    const lock = getLock(); if (!lock || ms <= 0) return;
+    if (lock.freeze?.active) {
+      lock.freeze.remainingMsAtFreeze = Math.max(0, (lock.freeze.remainingMsAtFreeze || 0) + ms);
+    } else if (lock.hygiene?.active && lock.hygiene.freezeDuringOpening) {
+      lock.hygiene.remainingMsAtOpen = Math.max(0, (lock.hygiene.remainingMsAtOpen || 0) + ms);
+      lock.currentUnlockAt = Date.now() + lock.hygiene.remainingMsAtOpen;
+    } else {
+      lock.currentUnlockAt = Math.max(Date.now(), lock.currentUnlockAt || Date.now()) + ms;
+    }
+    lock.totals.timeAddedMs += ms;
+    addEvent('time_added', title, detail || `${formatMs(ms)} added.`, source, { amountMs: ms });
+  }
+
+  function removeTime(ms, source='core', title='Time removed', detail='') {
+    const lock = getLock(); if (!lock || ms <= 0) return;
+    let removed = ms;
+    if (lock.freeze?.active) {
+      removed = Math.min(ms, lock.freeze.remainingMsAtFreeze || 0);
+      lock.freeze.remainingMsAtFreeze = Math.max(0, (lock.freeze.remainingMsAtFreeze || 0) - removed);
+    } else if (lock.hygiene?.active && lock.hygiene.freezeDuringOpening) {
+      removed = Math.min(ms, lock.hygiene.remainingMsAtOpen || 0);
+      lock.hygiene.remainingMsAtOpen = Math.max(0, (lock.hygiene.remainingMsAtOpen || 0) - removed);
+      lock.currentUnlockAt = Date.now() + lock.hygiene.remainingMsAtOpen;
+    } else {
+      const rem = remainingMs(lock);
+      removed = Math.min(ms, rem);
+      lock.currentUnlockAt = Date.now() + Math.max(0, rem - removed);
+    }
+    lock.totals.timeRemovedMs += removed;
+    addEvent('time_removed', title, detail || `${formatMs(removed)} removed.`, source, { amountMs: removed });
+    setExpiredIfNeeded(lock);
+  }
+
+  function freezeLock(source='core', reason='Lock frozen') {
+    const lock = getLock();
+    if (!lock || lock.status === 'completed') return;
+    if (!rules()?.features?.freeze?.enabled) return;
+    if (lock.freeze?.active) return;
+    lock.freeze = { active: true, startedAt: Date.now(), reason, remainingMsAtFreeze: remainingMs(lock) };
+    lock.status = 'frozen';
+    lock.totals.freezeCount += 1;
+    addEvent('timer_frozen', 'Lock frozen', reason, source);
+  }
+
+  function unfreezeLock(source='core', message='Lock unfrozen') {
+    const lock = getLock();
+    if (!lock || !lock.freeze?.active) return;
+    const frozenMs = Date.now() - lock.freeze.startedAt;
+    const rem = Math.max(0, lock.freeze.remainingMsAtFreeze || 0);
+    lock.totals.totalFrozenMs += frozenMs;
+    lock.freeze = { active: false, startedAt: null, reason: null, remainingMsAtFreeze: 0 };
+    lock.currentUnlockAt = Date.now() + rem;
+    lock.status = rem <= 0 ? 'expired' : 'active';
+    addEvent('timer_unfrozen', 'Lock unfrozen', message, source, { remainingMs: rem });
+  }
+
+  function toggleFreeze(source='core') {
+    const lock = getLock();
+    if (!lock) return;
+    if (lock.freeze?.active) unfreezeLock(source, 'Lock unfrozen.'); else freezeLock(source, 'Lock frozen.');
+  }
+
+  function applyPenaltyGroup(group, source) {
+    const lock = getLock(); if (!lock || !group) return;
+    if (group.addTime?.enabled) addTime(group.addTime.amountMs ?? timeObjToMs(group.addTime.amount), source, 'Penalty: time added');
+    if (group.pillory?.enabled && rules()?.features?.pillory?.enabled) startPillory(group.pillory.durationMs ?? timeObjToMs(group.pillory.duration), source);
+    if (group.freeze?.enabled && rules()?.features?.freeze?.enabled) freezeLock(source, 'Penalty froze the lock.');
+    if (group.addVisitors?.enabled && rules()?.features?.shareLink?.enabled) {
+      const amount = Math.max(0, Number(group.addVisitors.amount) || 0);
+      lock.shareLink.requiredVisitors += amount;
+      addEvent('visitors_required_added', 'Required visitors increased', `${amount} required visitors added.`, source, { amount });
+    }
+  }
+
+  function addRequiredVisitors(amount, source='core', title='Required visitors increased') {
+    const lock = getLock();
+    amount = Math.max(0, Number(amount) || 0);
+    if (!lock || amount <= 0 || !rules()?.features?.shareLink?.enabled) return false;
+    lock.shareLink.requiredVisitors += amount;
+    addEvent('visitors_required_added', title, `${amount} required visitors added.`, source, { amount });
+    return true;
+  }
+
+  function removeRequiredVisitors(amount, source='core', title='Required visitors reduced') {
+    const lock = getLock();
+    amount = Math.max(0, Number(amount) || 0);
+    if (!lock || amount <= 0 || !rules()?.features?.shareLink?.enabled) return false;
+    const removed = Math.min(amount, lock.shareLink.requiredVisitors || 0);
+    lock.shareLink.requiredVisitors = Math.max(0, (lock.shareLink.requiredVisitors || 0) - removed);
+    addEvent('visitors_required_removed', title, `${removed} required visitors removed.`, source, { amount: removed });
+    return true;
+  }
+
+  function createLock() {
+    const seal = state.seal;
+    const minMs = timeObjToMs(seal.duration.min);
+    const maxMs = timeObjToMs(seal.duration.max);
+    if (minMs < MINUTE) { toast('Minimum duration too low', 'Minimum duration must be at least 1 minute.'); return; }
+    if (maxMs < minMs) { toast('Invalid duration', 'Maximum duration must be greater than or equal to minimum.'); return; }
+
+    const chosenMs = minMs === maxMs ? minMs : randInt(Math.floor(minMs / MINUTE), Math.floor(maxMs / MINUTE)) * MINUTE;
+    const now = Date.now();
+    const sealedRules = buildSealedRules(seal);
+    const lock = {
+      id: uid('lock'),
+      version: VERSION,
+      status: 'active',
+      createdAt: now,
+      startedAt: now,
+      completedAt: null,
+      originalDurationMs: chosenMs,
+      originalUnlockAt: now + chosenMs,
+      currentUnlockAt: now + chosenMs,
+      sealedRules,
+      freeze: { active: false, startedAt: null, reason: null, remainingMsAtFreeze: 0 },
+      hygiene: initHygieneRuntime(sealedRules, now),
+      pillory: initPilloryRuntime(),
+      shareLink: initShareRuntime(sealedRules, now),
+      extensions: initExtensionRuntime(sealedRules, now),
+      points: 0,
+      totals: defaultTotals(),
+      timeline: []
+    };
+    state.activeLock = lock;
+    state.tab = 'dashboard';
+    addEvent('lock_sealed', 'Lock sealed', `Duration chosen: ${formatMs(chosenMs)}.`, 'core', { durationMs: chosenMs });
+    saveState();
+    toast('Lock sealed', `Duration chosen: ${formatMs(chosenMs)}.`);
+    render();
+  }
+
+  function buildSealedRules(seal) {
+    const f = clone(seal.features);
+    const e = clone(seal.extensions);
+    // Normalize time objects to ms for runtime.
+    f.hygiene.regularityMs = timeObjToMs(f.hygiene.regularity);
+    f.hygiene.allowedMs = timeObjToMs(f.hygiene.allowed);
+    f.hygiene.penalties.addTime.amountMs = timeObjToMs(f.hygiene.penalties.addTime.amount);
+    f.hygiene.penalties.pillory.durationMs = timeObjToMs(f.hygiene.penalties.pillory.duration);
+    f.pillory.timePerVoteMs = timeObjToMs(f.pillory.timePerVote);
+    f.shareLink.addPerVoteMs = timeObjToMs(f.shareLink.addPerVote);
+    f.shareLink.removePerVoteMs = timeObjToMs(f.shareLink.removePerVote);
+    f.shareLink.visitorsRequired = Math.max(0, Number(f.shareLink.visitorsRequired) || 0);
+
+    e.dailyCheckIn.regularityMs = timeObjToMs(e.dailyCheckIn.regularity);
+    e.dailyCheckIn.windowMs = timeObjToMs(e.dailyCheckIn.window);
+    e.dailyCheckIn.penalties.addTime.amountMs = timeObjToMs(e.dailyCheckIn.penalties.addTime.amount);
+    e.dailyCheckIn.penalties.pillory.durationMs = timeObjToMs(e.dailyCheckIn.penalties.pillory.duration);
+
+    e.dice.regularityMs = timeObjToMs(e.dice.regularity);
+    e.dice.timeMultiplierMs = timeObjToMs(e.dice.multiplier);
+    e.dice.diceType = Number(e.dice.diceType) || 6;
+
+    e.evilDice = e.evilDice || { enabled: false, mode: 'nonCumulative', regularity: { d: 1, h: 0, m: 0 } };
+    e.evilDice.regularityMs = timeObjToMs(e.evilDice.regularity);
+
+    e.wheel.regularityMs = timeObjToMs(e.wheel.regularity);
+    e.wheel.slices = (e.wheel.slices || []).map(s => ({
+      ...s,
+      amountMs: timeObjToMs(s.amount),
+      durationMs: timeObjToMs(s.duration)
+    })).filter(s => s.label && s.effect);
+    if (!e.wheel.slices.length) e.wheel.slices.push({ id: uid('slice'), label: 'Nothing', effect: 'nothing', amountMs: 0, durationMs: 0 });
+
+    e.bigBlackDeck = e.bigBlackDeck || { enabled: false, mode: 'nonCumulative', regularity: { d: 1, h: 0, m: 0 }, handSize: 3, selectedCardIds: DEFAULT_BIG_BLACK_DECK_IDS.slice() };
+    e.bigBlackDeck.regularityMs = timeObjToMs(e.bigBlackDeck.regularity);
+    e.bigBlackDeck.handSize = clampNum(e.bigBlackDeck.handSize || 3, 2, 5);
+    e.bigBlackDeck.selectedCardIds = (e.bigBlackDeck.selectedCardIds || []).filter(id => BIG_BLACK_DECK_CARDS.some(c => c.id === id));
+    if (!e.bigBlackDeck.selectedCardIds.length) e.bigBlackDeck.selectedCardIds = DEFAULT_BIG_BLACK_DECK_IDS.slice();
+
+    e.tasks.regularityMs = timeObjToMs(e.tasks.regularity);
+    e.tasks.penalties.addTime.amountMs = timeObjToMs(e.tasks.penalties.addTime.amount);
+    e.tasks.penalties.pillory.durationMs = timeObjToMs(e.tasks.penalties.pillory.duration);
+    e.tasks.taskList = (e.tasks.taskList || []).filter(t => (t.name || '').trim()).map(t => ({ ...t, name: t.name.trim(), description: (t.description || '').trim() }));
+    if (!e.tasks.taskList.length) e.tasks.taskList.push({ id: uid('task'), name: 'Complete a task', description: '' });
+
+    e.unlockGamble.unlockWeight = Math.max(0, Number(e.unlockGamble.unlockWeight) || 0);
+    e.unlockGamble.deniedWeight = Math.max(0, Number(e.unlockGamble.deniedWeight) || 0);
+    if (e.unlockGamble.unlockWeight + e.unlockGamble.deniedWeight <= 0) e.unlockGamble.deniedWeight = 1;
+    e.unlockGamble.penalties.addTime.amountMs = timeObjToMs(e.unlockGamble.penalties.addTime.amount);
+    e.unlockGamble.penalties.pillory.durationMs = timeObjToMs(e.unlockGamble.penalties.pillory.duration);
+    e.unlockGamble.penalties.addVisitors.amount = Math.max(0, Number(e.unlockGamble.penalties.addVisitors.amount) || 0);
+
+    e.obligations = e.obligations || { enabled: false, rules: [] };
+    e.obligations.rules = (e.obligations.rules || []).filter(r => (r.name || '').trim()).map(r => ({
+      ...r,
+      id: r.id || uid('obligation'),
+      name: (r.name || 'Obligation').trim(),
+      action: r.action || 'evilDice',
+      regularityMs: Math.max(MINUTE, timeObjToMs(r.regularity) || DAY),
+      windowMs: Math.max(MINUTE, timeObjToMs(r.window) || 12 * HOUR),
+      penalty: normalizeObligationPenalty(r.penalty)
+    }));
+
+    return { features: f, extensions: e };
+  }
+
+  function normalizeObligationPenalty(p={}) {
+    return {
+      type: p.type || 'addTime',
+      amountMs: timeObjToMs(p.amount || { d: 0, h: 2, m: 0 }),
+      pilloryDurationMs: timeObjToMs(p.pilloryDuration || { d: 0, h: 1, m: 0 }),
+      visitors: Math.max(0, Number(p.visitors) || 0),
+      points: Math.max(0, Number(p.points) || 0)
+    };
+  }
+
+  function initHygieneRuntime(sealedRules, now) {
+    const h = sealedRules.features.hygiene;
+    return {
+      enabled: !!h.enabled,
+      availableAt: h.enabled ? now + Math.max(MINUTE, h.regularityMs || DAY) : null,
+      active: false,
+      openedAt: null,
+      mustCloseBy: null,
+      exceededApplied: false,
+      freezeDuringOpening: false,
+      remainingMsAtOpen: 0
+    };
+  }
+
+  function initPilloryRuntime() {
+    return { active: false, activePillories: [] };
+  }
+
+  function initShareRuntime(sealedRules, now) {
+    const req = sealedRules.features.shareLink.visitorsRequired || 0;
+    return {
+      enabled: !!sealedRules.features.shareLink.enabled,
+      requiredVisitors: req,
+      visitors: 0,
+      active: false,
+      startedAt: null,
+      endsAt: null,
+      location: null,
+      queue: [],
+      eventStats: null,
+      locations: {
+        chatroom: normalizeShareLocation(null, 'chatroom', now),
+        forum: normalizeShareLocation(null, 'forum', now)
+      }
+    };
+  }
+
+  function initExtensionRuntime(sealedRules, now) {
+    const e = sealedRules.extensions;
+    return {
+      dailyCheckIn: { enabled: e.dailyCheckIn.enabled, nextAt: now + Math.max(MINUTE, e.dailyCheckIn.regularityMs || DAY), windowEndsAt: null, available: false, completed: false },
+      dice: { enabled: e.dice.enabled, nextAt: now + Math.max(MINUTE, e.dice.regularityMs || DAY), stored: 0 },
+      evilDice: initEvilDiceRuntime(sealedRules, now),
+      wheel: { enabled: e.wheel.enabled, nextAt: now + Math.max(MINUTE, e.wheel.regularityMs || DAY), stored: e.wheel.mode === 'unlimited' ? Infinity : 0 },
+      bigBlackDeck: initBigBlackDeckRuntime(sealedRules, now),
+      tasks: { enabled: e.tasks.enabled, nextAt: now + Math.max(MINUTE, e.tasks.regularityMs || DAY), stored: 0, activeTask: null },
+      randomEvents: { enabled: e.randomEvents.enabled, nextAt: now + DAY, checkedDays: 0 },
+      unlockGamble: { enabled: e.unlockGamble.enabled, unlocked: false },
+      rewardStore: { enabled: e.rewardStore.enabled },
+      obligations: initObligationsRuntime(sealedRules, now)
+    };
+  }
+
+  function initEvilDiceRuntime(sealedRules, now) {
+    const cfg = sealedRules.extensions.evilDice || {};
+    return {
+      enabled: !!cfg.enabled,
+      nextAt: now + Math.max(MINUTE, cfg.regularityMs || DAY),
+      stored: cfg.mode === 'unlimited' ? Infinity : 0,
+      sides: [
+        { side: 1, effect: 'removeTime', amountMs: HOUR, label: 'Remove 1 hour' },
+        { side: 2, effect: 'addTime', amountMs: 2 * HOUR, label: 'Add 2 hours' }
+      ],
+      lastRoll: null
+    };
+  }
+
+  function buildBigBlackDeck(ids) {
+    const deck = [];
+    for (const id of ids || []) {
+      if (!cardById(id)) continue;
+      for (let copy = 0; copy < 5; copy++) deck.push({ id, copy });
+    }
+    return shuffle(deck);
+  }
+
+  function initBigBlackDeckRuntime(sealedRules, now) {
+    const cfg = sealedRules.extensions.bigBlackDeck || {};
+    const ids = cfg.selectedCardIds || DEFAULT_BIG_BLACK_DECK_IDS;
+    const deck = buildBigBlackDeck(ids);
+    return {
+      enabled: !!cfg.enabled,
+      nextAt: now + Math.max(MINUTE, cfg.regularityMs || DAY),
+      stored: cfg.mode === 'unlimited' ? Infinity : 0,
+      deck,
+      totalCards: deck.length,
+      pickedSinceShuffle: 0,
+      currentHand: null,
+      lastCard: null
+    };
+  }
+
+  function initObligationsRuntime(sealedRules, now) {
+    const cfg = sealedRules.extensions.obligations || { enabled: false, rules: [] };
+    return {
+      enabled: !!cfg.enabled,
+      rules: (cfg.rules || []).map(r => ({ id: r.id, nextAt: now + Math.max(MINUTE, r.regularityMs || DAY), available: false, completed: false, windowEndsAt: null, completedCount: 0, failedCount: 0 }))
+    };
+  }
+
+  function completeLock() {
+    const lock = getLock(); if (!lock) return;
+    const blockers = completionBlockers(lock);
+    if (blockers.length) { toast('Completion blocked', blockers[0]); return; }
+    const summary = buildLockSummary(lock);
+    lock.status = 'completed';
+    lock.completedAt = Date.now();
+    addEvent('lock_completed', 'Lock completed', 'The lock was completed and archived.', 'core');
+    state.archive.unshift({ ...clone(lock), summary });
+    state.activeLock = null;
+    state.tab = 'history';
+    saveState();
+    toast('Lock completed', 'The lock has been archived.');
+    render();
+  }
+
+  function completionBlockers(lock) {
+    const list = [];
+    if (remainingMs(lock) > 0) list.push('Timer has not expired.');
+    if (lock.freeze?.active) list.push('LOCK IS FROZEN.');
+    if (lock.hygiene?.active) list.push('Hygiene opening is active.');
+    if (rules()?.features?.shareLink?.enabled && (lock.shareLink.visitors < lock.shareLink.requiredVisitors)) list.push('Visitor requirement not met.');
+    if (rules()?.extensions?.unlockGamble?.enabled && !lock.extensions.unlockGamble.unlocked) list.push('Unlock Gamble required.');
+    return list;
+  }
+
+  function buildLockSummary(lock) {
+    return {
+      originalDurationMs: lock.originalDurationMs,
+      finalDurationMs: Math.max(0, (lock.completedAt || Date.now()) - lock.startedAt),
+      ...clone(lock.totals),
+      points: lock.points,
+      shareVisitors: lock.shareLink?.visitors || 0,
+      requiredVisitors: lock.shareLink?.requiredVisitors || 0
+    };
+  }
+
+  function archiveActiveAsReset() {
+    if (!state.activeLock) return;
+    if (!confirm('Reset the active lock? This deletes the active lock without archiving it.')) return;
+    state.activeLock = null;
+    state.tab = 'seal';
+    saveState();
+    render();
+  }
+
+  function processRuntime() {
+    const lock = getLock();
+    if (!lock) return;
+    const now = Date.now();
+
+    processHygiene(lock, now);
+    processPillory(lock, now);
+    processShare(lock, now);
+    processDailyCheckIn(lock, now);
+    processTimedAvailability(lock, now, 'dice', lock.sealedRules.extensions.dice.mode, lock.sealedRules.extensions.dice.regularityMs);
+    processTimedAvailability(lock, now, 'evilDice', lock.sealedRules.extensions.evilDice.mode, lock.sealedRules.extensions.evilDice.regularityMs);
+    processTimedAvailability(lock, now, 'wheel', lock.sealedRules.extensions.wheel.mode, lock.sealedRules.extensions.wheel.regularityMs);
+    processTimedAvailability(lock, now, 'bigBlackDeck', lock.sealedRules.extensions.bigBlackDeck.mode, lock.sealedRules.extensions.bigBlackDeck.regularityMs);
+    processTaskAvailability(lock, now);
+    processRandomEvents(lock, now);
+    processObligations(lock, now);
+    setExpiredIfNeeded(lock);
+    saveState();
+  }
+
+  function processTimedAvailability(lock, now, key, mode, regularityMs) {
+    const rt = lock.extensions[key];
+    if (!rt?.enabled || mode === 'unlimited') return;
+    regularityMs = Math.max(MINUTE, regularityMs || DAY);
+    let changed = false;
+    while (now >= rt.nextAt) {
+      if (mode === 'cumulative') rt.stored += 1;
+      else rt.stored = Math.max(rt.stored, 1);
+      rt.nextAt += regularityMs;
+      changed = true;
+      if (mode !== 'cumulative') break;
+      if (rt.stored > 500) break;
+    }
+    if (changed) addEvent(`${key}_available`, `${titleCase(key)} available`, `${titleCase(key)} is available.`, key);
+  }
+
+  function processDailyCheckIn(lock, now) {
+    const cfg = lock.sealedRules.extensions.dailyCheckIn;
+    const rt = lock.extensions.dailyCheckIn;
+    if (!cfg.enabled || !rt.enabled) return;
+    const regularity = Math.max(MINUTE, cfg.regularityMs || DAY);
+    const windowMs = Math.max(MINUTE, cfg.windowMs || 12 * HOUR);
+    if (!rt.available && now >= rt.nextAt) {
+      rt.available = true;
+      rt.completed = false;
+      rt.windowEndsAt = now + windowMs;
+      addEvent('check_in_available', 'Check-in available', 'Daily check-in became available.', 'dailyCheckIn');
+    }
+    if (rt.available && !rt.completed && now > rt.windowEndsAt) {
+      rt.available = false;
+      rt.completed = false;
+      rt.nextAt = now + regularity;
+      lock.totals.dailyMissed += 1;
+      addEvent('missed_check_in', 'Check-in missed', 'Daily check-in was missed.', 'dailyCheckIn');
+      applyPenaltyGroup(cfg.penalties, 'dailyCheckIn');
+    }
+  }
+
+  function completeCheckIn() {
+    const lock = getLock(); if (!lock) return;
+    const rt = lock.extensions.dailyCheckIn;
+    const cfg = lock.sealedRules.extensions.dailyCheckIn;
+    if (!rt.available) return;
+    rt.available = false;
+    rt.completed = true;
+    rt.nextAt = Date.now() + Math.max(MINUTE, cfg.regularityMs || DAY);
+    lock.totals.dailyCheckIns += 1;
+    addEvent('check_in_completed', 'Check-in completed', 'Daily check-in completed.', 'dailyCheckIn');
+    recordObligationAction('dailyCheckIn');
+    saveState(); toast('Check-in completed'); render();
+  }
+
+  function processTaskAvailability(lock, now) {
+    const cfg = lock.sealedRules.extensions.tasks;
+    const rt = lock.extensions.tasks;
+    if (!cfg.enabled || !rt.enabled) return;
+    const regularity = Math.max(MINUTE, cfg.regularityMs || DAY);
+    let created = false;
+    while (now >= rt.nextAt) {
+      if (cfg.mode === 'cumulative') rt.stored += 1;
+      else rt.stored = Math.max(rt.stored, 1);
+      rt.nextAt += regularity;
+      created = true;
+      if (cfg.mode !== 'cumulative') break;
+      if (rt.stored > 500) break;
+    }
+    if (!rt.activeTask && rt.stored > 0) createActiveTask(lock);
+    if (created) addEvent('task_available', 'Task available', 'A task is available.', 'tasks');
+  }
+
+  function createActiveTask(lock) {
+    const cfg = lock.sealedRules.extensions.tasks;
+    const rt = lock.extensions.tasks;
+    if (!cfg.taskList?.length || rt.stored <= 0) return;
+    const t = sample(cfg.taskList);
+    rt.stored -= 1;
+    rt.activeTask = { id: uid('active_task'), sourceTaskId: t.id, name: t.name, description: t.description, createdAt: Date.now(), status: 'pending' };
+  }
+
+  function resolveTask(result) {
+    const lock = getLock(); if (!lock) return;
+    const rt = lock.extensions.tasks;
+    const cfg = lock.sealedRules.extensions.tasks;
+    const task = rt.activeTask;
+    if (!task) return;
+    if (result === 'complete') {
+      const points = randInt(1,100);
+      lock.points += points;
+      lock.totals.tasksCompleted += 1;
+      addEvent('task_completed', 'Task completed', `${task.name}. ${points} points earned.`, 'tasks', { points });
+      toast('Task completed', `${points} points earned.`);
+      recordObligationAction('task');
+    } else {
+      lock.totals.tasksFailed += 1;
+      addEvent('task_failed', 'Task failed', task.name, 'tasks');
+      applyPenaltyGroup(cfg.penalties, 'tasks');
+      toast('Task failed', 'Penalties applied.');
+    }
+    rt.activeTask = null;
+    if (rt.stored > 0) createActiveTask(lock);
+    saveState(); render();
+  }
+
+  function rollDice() {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.dice;
+    const rt = lock.extensions.dice;
+    if (!cfg.enabled) return;
+    if (rt.stored <= 0) { toast('Dice unavailable'); return; }
+    rt.stored -= 1;
+    const sides = Number(cfg.diceType) || 6;
+    const dealer = randInt(1, sides);
+    const user = randInt(1, sides);
+    const diff = Math.abs(dealer - user);
+    const amount = diff * (cfg.timeMultiplierMs || 0);
+    lock.totals.diceRolls += 1;
+    let msg = `Dealer: ${dealer}. User: ${user}. `;
+    if (dealer > user && amount > 0) {
+      addTime(amount, 'dice', 'Dice: dealer won', `${formatMs(amount)} added. Dealer ${dealer}, user ${user}.`);
+      msg += `${formatMs(amount)} added.`;
+    } else if (user > dealer && amount > 0) {
+      removeTime(amount, 'dice', 'Dice: user won', `${formatMs(amount)} removed. Dealer ${dealer}, user ${user}.`);
+      msg += `${formatMs(amount)} removed.`;
+    } else {
+      addEvent('dice_tie', 'Dice tie', `Dealer: ${dealer}. User: ${user}. No change.`, 'dice');
+      msg += 'No change.';
+    }
+    toast('Dice rolled', msg);
+    recordObligationAction('dice');
+    saveState(); render();
+  }
+
+  function spinWheel() {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.wheel;
+    const rt = lock.extensions.wheel;
+    if (!cfg.enabled) return;
+    if (cfg.mode !== 'unlimited') {
+      if (rt.stored <= 0) { toast('Wheel unavailable'); return; }
+      rt.stored -= 1;
+    }
+    const slice = sample(cfg.slices || []);
+    if (!slice) return;
+    lock.totals.wheelSpins += 1;
+    applyWheelEffect(slice, 'wheel');
+    recordObligationAction('wheel');
+    saveState(); render();
+  }
+
+  function applyWheelEffect(slice, source='wheel') {
+    const label = slice.label || 'Wheel result';
+    switch (slice.effect) {
+      case 'addTime': addTime(slice.amountMs || 0, source, `Wheel: ${label}`); toast('Wheel result', `${label}: ${formatMs(slice.amountMs || 0)} added.`); break;
+      case 'removeTime': removeTime(slice.amountMs || 0, source, `Wheel: ${label}`); toast('Wheel result', `${label}: ${formatMs(slice.amountMs || 0)} removed.`); break;
+      case 'addRemoveTime': {
+        if (Math.random() < .5) { addTime(slice.amountMs || 0, source, `Wheel: ${label}`, `${formatMs(slice.amountMs || 0)} added.`); toast('Wheel result', `${label}: add.`); }
+        else { removeTime(slice.amountMs || 0, source, `Wheel: ${label}`, `${formatMs(slice.amountMs || 0)} removed.`); toast('Wheel result', `${label}: remove.`); }
+        break;
+      }
+      case 'freeze': freezeLock(source, `Wheel landed on ${label}.`); toast('Wheel result', 'LOCK IS FROZEN.'); break;
+      case 'unfreeze': unfreezeLock(source, `Wheel landed on ${label}.`); toast('Wheel result', 'Unfreeze.'); break;
+      case 'freezeUnfreeze': toggleFreeze(source); toast('Wheel result', 'Freeze / Unfreeze.'); break;
+      case 'pillory': startPillory(slice.durationMs || 0, source); toast('Wheel result', `Pillory: ${formatMs(slice.durationMs || 0)}.`); break;
+      default: addEvent('wheel_nothing', `Wheel: ${label}`, 'No effect.', source); toast('Wheel result', `${label}: no effect.`);
+    }
+  }
+
+  function processRandomEvents(lock, now) {
+    const cfg = lock.sealedRules.extensions.randomEvents;
+    const rt = lock.extensions.randomEvents;
+    if (!cfg.enabled || !rt.enabled) return;
+    while (now >= rt.nextAt) {
+      rt.nextAt += DAY;
+      resolveRandomEvent(cfg.difficulty || 'normal');
+      if (++rt.checkedDays > 500) break;
+    }
+  }
+
+  function resolveRandomEvent(difficulty) {
+    const pools = {
+      easy: { chance: 20, events: [
+        { label: 'Small mercy', effect: 'removeTime', amountMs: 15 * MINUTE },
+        { label: 'Small delay', effect: 'addTime', amountMs: 15 * MINUTE },
+        { label: 'Nothing', effect: 'nothing' },
+        { label: 'Nothing', effect: 'nothing' },
+        { label: 'Short Pillory', effect: 'pillory', durationMs: 10 * MINUTE },
+        { label: 'Unfreeze', effect: 'unfreeze' }
+      ] },
+      normal: { chance: 35, events: [
+        { label: '+30m', effect: 'addTime', amountMs: 30 * MINUTE },
+        { label: '-30m', effect: 'removeTime', amountMs: 30 * MINUTE },
+        { label: 'Add / Remove 1h', effect: 'addRemoveTime', amountMs: HOUR },
+        { label: 'Pillory 20m', effect: 'pillory', durationMs: 20 * MINUTE },
+        { label: 'Freeze / Unfreeze', effect: 'freezeUnfreeze' },
+        { label: 'Nothing', effect: 'nothing' }
+      ] },
+      hard: { chance: 50, events: [
+        { label: '+1h', effect: 'addTime', amountMs: HOUR },
+        { label: '+2h', effect: 'addTime', amountMs: 2 * HOUR },
+        { label: '-30m', effect: 'removeTime', amountMs: 30 * MINUTE },
+        { label: 'Pillory 30m', effect: 'pillory', durationMs: 30 * MINUTE },
+        { label: 'Freeze', effect: 'freeze' },
+        { label: 'Freeze / Unfreeze', effect: 'freezeUnfreeze' }
+      ] },
+      expert: { chance: 70, events: [
+        { label: '+4h', effect: 'addTime', amountMs: 4 * HOUR },
+        { label: '+8h', effect: 'addTime', amountMs: 8 * HOUR },
+        { label: 'Pillory 1h', effect: 'pillory', durationMs: HOUR },
+        { label: 'Freeze', effect: 'freeze' },
+        { label: '-1h', effect: 'removeTime', amountMs: HOUR },
+        { label: 'Unfreeze', effect: 'unfreeze' },
+        { label: 'Add / Remove 3h', effect: 'addRemoveTime', amountMs: 3 * HOUR }
+      ] }
+    };
+    const config = pools[difficulty] || pools.normal;
+    if (!chance(config.chance)) {
+      addEvent('random_event_check', 'Random event check', 'No event triggered.', 'randomEvents');
+      return;
+    }
+    const ev = sample(config.events);
+    getLock().totals.randomEvents += 1;
+    addEvent('random_event_triggered', 'Random event triggered', ev.label, 'randomEvents');
+    applyWheelEffect(ev, 'randomEvents');
+  }
+
+  function rollEvilDice(source='evilDice') {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.evilDice;
+    const rt = lock.extensions.evilDice;
+    if (!cfg?.enabled || !rt?.enabled) return;
+    if (cfg.mode !== 'unlimited') {
+      if (rt.stored <= 0) { toast('Evil Dice unavailable'); return; }
+      rt.stored -= 1;
+    }
+    if (!Array.isArray(rt.sides) || rt.sides.length < 2) rt.sides = initEvilDiceRuntime(lock.sealedRules, Date.now()).sides;
+    const rolledSideNumber = randInt(1, rt.sides.length);
+    const side = rt.sides[rolledSideNumber - 1];
+    lock.totals.evilDiceRolls += 1;
+    const detail = applyEvilDiceSide(side, source);
+    const newSide = generateEvilDiceSide(rt.sides.length + 1);
+    rt.sides.push(newSide);
+    rt.lastRoll = { at: Date.now(), rolled: rolledSideNumber, detail, newSide: newSide.side, newSideLabel: newSide.label };
+    addEvent('evil_dice_grew', 'Evil Dice grew', `The die is now D${rt.sides.length}.`, source, { newSide });
+    toast('Evil Dice rolled', `Side ${rolledSideNumber}: ${detail}. Die grew to D${rt.sides.length}.`);
+    recordObligationAction('evilDice');
+    saveState(); render();
+  }
+
+  function generateEvilDiceSide(sideNumber) {
+    const r = Math.random() * 100;
+    const removeCut = EVIL_DICE_ODDS.removeTime;
+    const pilloryCut = removeCut + EVIL_DICE_ODDS.pillory;
+    const freezeCut = pilloryCut + EVIL_DICE_ODDS.freeze;
+    if (r < removeCut) return { side: sideNumber, effect: 'removeTime', amountMs: sideNumber * HOUR, label: `Remove ${sideNumber} hour${sideNumber===1?'':'s'}` };
+    if (r < pilloryCut) return { side: sideNumber, effect: 'pillory', durationMs: sideNumber * 10 * MINUTE, label: `Pillory ${sideNumber * 10} minutes` };
+    if (r < freezeCut) return { side: sideNumber, effect: 'freeze', label: 'Freeze' };
+    return { side: sideNumber, effect: 'addTime', amountMs: sideNumber * HOUR, label: `Add ${sideNumber} hour${sideNumber===1?'':'s'}` };
+  }
+
+  function applyEvilDiceSide(side, source='evilDice') {
+    const lock = getLock();
+    const label = side.label || `Side ${side.side}`;
+    if (side.effect === 'removeTime') {
+      removeTime(side.amountMs || 0, source, `Evil Dice: side ${side.side}`, label);
+      lock.totals.evilDiceTimeRemovedMs += side.amountMs || 0;
+      return label;
+    }
+    if (side.effect === 'addTime') {
+      addTime(side.amountMs || 0, source, `Evil Dice: side ${side.side}`, label);
+      lock.totals.evilDiceTimeAddedMs += side.amountMs || 0;
+      return label;
+    }
+    if (side.effect === 'pillory') {
+      startPillory(side.durationMs || 0, source);
+      addEvent('evil_dice_pillory', 'Evil Dice: Pillory', label, source, { side: side.side, durationMs: side.durationMs || 0 });
+      return label;
+    }
+    if (side.effect === 'freeze') {
+      freezeLock(source, 'Evil Dice froze the lock.');
+      addEvent('evil_dice_freeze', 'Evil Dice: Freeze', 'LOCK IS FROZEN.', source, { side: side.side });
+      return label;
+    }
+    addEvent('evil_dice_nothing', 'Evil Dice: nothing', label, source);
+    return label;
+  }
+
+  function cardById(id) { return BIG_BLACK_DECK_CARDS.find(c => c.id === id) || null; }
+
+  function shuffle(arr) {
+    const out = [...arr];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+
+  function ensureBigBlackDeckReady(lock) {
+    const rt = lock.extensions.bigBlackDeck;
+    const cfg = lock.sealedRules.extensions.bigBlackDeck;
+    if (!Array.isArray(rt.deck) || !rt.deck.length || rt.pickedSinceShuffle >= Math.ceil((rt.totalCards || 0) / 2)) {
+      rt.deck = buildBigBlackDeck(cfg.selectedCardIds || DEFAULT_BIG_BLACK_DECK_IDS);
+      rt.totalCards = rt.deck.length;
+      rt.pickedSinceShuffle = 0;
+      addEvent('big_black_deck_reshuffled', 'Big Black Deck reshuffled', 'The deck reshuffled after enough cards were picked.', 'bigBlackDeck');
+    }
+  }
+
+  function dealBigBlackDeckHand() {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.bigBlackDeck;
+    const rt = lock.extensions.bigBlackDeck;
+    if (!cfg?.enabled || !rt?.enabled) return;
+    if (rt.currentHand) { toast('Hand already dealt', 'Choose one face-down card.'); return; }
+    if (cfg.mode !== 'unlimited') {
+      if (rt.stored <= 0) { toast('Big Black Deck unavailable'); return; }
+      rt.stored -= 1;
+    }
+    ensureBigBlackDeckReady(lock);
+    const handSize = Math.min(clampNum(cfg.handSize || 3, 2, 5), rt.deck.length);
+    const pool = shuffle(rt.deck);
+    rt.currentHand = pool.slice(0, handSize).map(entry => ({ cardId: entry.id, revealed: false }));
+    lock.totals.bigBlackDeckHands += 1;
+    addEvent('big_black_deck_dealt', 'Big Black Deck hand dealt', `${handSize} face-down cards were dealt.`, 'bigBlackDeck');
+    toast('Big Black Deck', 'Choose one face-down card.');
+    saveState(); render();
+  }
+
+  function chooseBigBlackDeckCard(index) {
+    const lock = getLock(); if (!lock) return;
+    const rt = lock.extensions.bigBlackDeck;
+    if (!rt?.currentHand || !rt.currentHand[index]) return;
+    const chosen = rt.currentHand[index];
+    const card = cardById(chosen.cardId);
+    if (!card) return;
+    const removeAt = rt.deck.findIndex(entry => entry.id === card.id);
+    if (removeAt >= 0) rt.deck.splice(removeAt, 1);
+    rt.pickedSinceShuffle = (rt.pickedSinceShuffle || 0) + 1;
+    rt.lastCard = { cardId: card.id, at: Date.now(), name: card.name, text: card.text, img: card.img };
+    rt.currentHand = null;
+    lock.totals.bigBlackDeckCardsPicked += 1;
+    applyBigBlackDeckCard(card);
+    recordObligationAction('bigBlackDeck');
+    if (rt.pickedSinceShuffle >= Math.ceil((rt.totalCards || 0) / 2)) {
+      rt.deck = buildBigBlackDeck(lock.sealedRules.extensions.bigBlackDeck.selectedCardIds || DEFAULT_BIG_BLACK_DECK_IDS);
+      rt.totalCards = rt.deck.length;
+      rt.pickedSinceShuffle = 0;
+      addEvent('big_black_deck_reshuffled', 'Big Black Deck reshuffled', 'Half of the deck had been picked, so it reshuffled.', 'bigBlackDeck');
+    }
+    saveState(); render();
+  }
+
+  function applyBigBlackDeckCard(card) {
+    const title = `Big Black Deck: ${card.name}`;
+    if (card.effect === 'addTime') { addTime(card.amountMs || 0, 'bigBlackDeck', title, card.text); toast(card.name, card.text); return; }
+    if (card.effect === 'removeTime') { removeTime(card.amountMs || 0, 'bigBlackDeck', title, card.text); toast(card.name, card.text); return; }
+    if (card.effect === 'freeze') { freezeLock('bigBlackDeck', `${card.name}: ${card.text}.`); toast(card.name, card.text); return; }
+    if (card.effect === 'unfreeze') { unfreezeLock('bigBlackDeck', `${card.name}: ${card.text}.`); toast(card.name, card.text); return; }
+    if (card.effect === 'freezeUnfreeze') { toggleFreeze('bigBlackDeck'); addEvent('big_black_deck_toggle', title, card.text, 'bigBlackDeck'); toast(card.name, card.text); return; }
+    if (card.effect === 'pillory') { startPillory(card.durationMs || 0, 'bigBlackDeck'); addEvent('big_black_deck_pillory', title, card.text, 'bigBlackDeck'); toast(card.name, card.text); return; }
+    if (card.effect === 'addVisitors') { addRequiredVisitors(card.amount || 0, 'bigBlackDeck', title); toast(card.name, card.text); return; }
+    if (card.effect === 'removeVisitors') { removeRequiredVisitors(card.amount || 0, 'bigBlackDeck', title); toast(card.name, card.text); return; }
+    addEvent('big_black_deck_nothing', title, card.text || 'Nothing happened.', 'bigBlackDeck');
+    toast(card.name, card.text || 'Nothing happened.');
+  }
+
+  function processObligations(lock, now) {
+    const cfg = lock.sealedRules.extensions.obligations;
+    const rt = lock.extensions.obligations;
+    if (!cfg?.enabled || !rt?.enabled) return;
+    for (const ruleCfg of (cfg.rules || [])) {
+      let ruleRt = (rt.rules || []).find(r => r.id === ruleCfg.id);
+      if (!ruleRt) {
+        ruleRt = { id: ruleCfg.id, nextAt: now + Math.max(MINUTE, ruleCfg.regularityMs || DAY), available: false, completed: false, windowEndsAt: null, completedCount: 0, failedCount: 0 };
+        rt.rules.push(ruleRt);
+      }
+      if (!ruleRt.available && now >= ruleRt.nextAt) {
+        ruleRt.available = true;
+        ruleRt.completed = false;
+        ruleRt.windowEndsAt = now + Math.max(MINUTE, ruleCfg.windowMs || 12 * HOUR);
+        addEvent('obligation_due', 'Obligation due', `${ruleCfg.name} is due.`, 'obligations', { obligationId: ruleCfg.id, action: ruleCfg.action });
+      }
+      if (ruleRt.available && !ruleRt.completed && now > ruleRt.windowEndsAt) {
+        ruleRt.available = false;
+        ruleRt.completed = false;
+        ruleRt.nextAt = now + Math.max(MINUTE, ruleCfg.regularityMs || DAY);
+        ruleRt.failedCount = (ruleRt.failedCount || 0) + 1;
+        lock.totals.obligationsFailed += 1;
+        addEvent('obligation_failed', 'Obligation failed', `${ruleCfg.name} was not completed.`, 'obligations', { obligationId: ruleCfg.id });
+        applyObligationPenalty(ruleCfg);
+      }
+    }
+  }
+
+  function recordObligationAction(action) {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.obligations;
+    const rt = lock.extensions.obligations;
+    if (!cfg?.enabled || !rt?.enabled) return;
+    let completed = 0;
+    const now = Date.now();
+    for (const ruleCfg of (cfg.rules || [])) {
+      if (ruleCfg.action !== action) continue;
+      const ruleRt = (rt.rules || []).find(r => r.id === ruleCfg.id);
+      if (!ruleRt?.available || ruleRt.completed || now > ruleRt.windowEndsAt) continue;
+      ruleRt.available = false;
+      ruleRt.completed = true;
+      ruleRt.nextAt = now + Math.max(MINUTE, ruleCfg.regularityMs || DAY);
+      ruleRt.windowEndsAt = null;
+      ruleRt.completedCount = (ruleRt.completedCount || 0) + 1;
+      lock.totals.obligationsCompleted += 1;
+      completed += 1;
+      addEvent('obligation_completed', 'Obligation completed', `${ruleCfg.name} completed.`, 'obligations', { obligationId: ruleCfg.id, action });
+    }
+    if (completed) toast('Obligation completed', `${completed} obligation${completed>1?'s':''} satisfied.`);
+  }
+
+  function applyObligationPenalty(ruleCfg) {
+    const p = ruleCfg.penalty || {};
+    const lock = getLock(); if (!lock) return;
+    if (p.type === 'addTime') addTime(p.amountMs || 0, 'obligations', `Obligation penalty: ${ruleCfg.name}`);
+    else if (p.type === 'freeze') freezeLock('obligations', `Obligation failed: ${ruleCfg.name}.`);
+    else if (p.type === 'pillory') startPillory(p.pilloryDurationMs || 0, 'obligations');
+    else if (p.type === 'addVisitors') addRequiredVisitors(p.visitors || 0, 'obligations', `Obligation penalty: ${ruleCfg.name}`);
+    else if (p.type === 'losePoints') {
+      const lost = Math.min(lock.points || 0, p.points || 0);
+      lock.points = Math.max(0, (lock.points || 0) - lost);
+      addEvent('points_lost', 'Points lost', `${lost} points lost.`, 'obligations', { points: lost });
+    }
+    toast('Obligation failed', `${ruleCfg.name}: penalty applied.`);
+  }
+
+  function startPillory(durationMs, source='pillory') {
+    const lock = getLock(); if (!lock || !rules()?.features?.pillory?.enabled || durationMs <= 0) return;
+    if (!lock.pillory || !Array.isArray(lock.pillory.activePillories)) lock.pillory = initPilloryRuntime();
+    const now = Date.now();
+    const intensity = chooseWeighted([
+      ['gentle', 18], ['nice', 35], ['mean', 30], ['brutal', 17]
+    ]);
+    const perHour = {
+      gentle: randFloat(1,2),
+      nice: randFloat(3,5),
+      mean: randFloat(6,8),
+      brutal: randFloat(9,12)
+    }[intensity];
+    const lambda = Math.max(0.05, (durationMs / HOUR) * perHour);
+    const count = poisson(lambda);
+    const queue = [];
+    for (let i = 0; i < count; i++) queue.push({ at: now + Math.floor(Math.random() * durationMs), resolved: false });
+    queue.sort((a,b) => a.at - b.at);
+    const pillory = {
+      id: uid('pillory'),
+      active: true,
+      startedAt: now,
+      endsAt: now + durationMs,
+      durationMs,
+      votes: 0,
+      addedMs: 0,
+      queue,
+      intensity,
+      source,
+      summaryLogged: false
+    };
+    lock.pillory.activePillories.push(pillory);
+    lock.pillory.active = true;
+    lock.totals.pilloryEvents += 1;
+    addEvent('pillory_started', 'Pillory started', `Pillory started for ${formatMs(durationMs)}.`, source, { pilloryId: pillory.id, durationMs, hiddenIntensity: intensity, scheduledVotes: count });
+  }
+
+  function processPillory(lock, now) {
+    const runtime = lock.pillory;
+    if (!runtime) return;
+    if (!Array.isArray(runtime.activePillories)) {
+      migrateActiveLock(lock);
+    }
+    const list = runtime.activePillories || [];
+    if (!list.length) { runtime.active = false; return; }
+    const timePerVote = lock.sealedRules.features.pillory.timePerVoteMs || 0;
+    for (const p of list) {
+      if (!p.active) continue;
+      let resolved = 0;
+      for (const v of (p.queue || [])) {
+        if (!v.resolved && now >= v.at) {
+          v.resolved = true;
+          resolved += 1;
+        }
+      }
+      if (resolved) {
+        const added = resolved * timePerVote;
+        p.votes += resolved;
+        p.addedMs += added;
+        lock.totals.pilloryVotes += resolved;
+        lock.totals.pilloryTimeAddedMs += added;
+        addTime(added, 'pillory', 'Pillory vote received', `${resolved} vote${resolved>1?'s':''}. ${formatMs(added)} added.`);
+      }
+      if (now >= p.endsAt && !p.summaryLogged) {
+        p.active = false;
+        p.summaryLogged = true;
+        addEvent('pillory_ended', 'Pillory ended', `Votes: ${p.votes}. Added: ${formatMs(p.addedMs)}.`, 'pillory', { pilloryId: p.id, votes: p.votes, addedMs: p.addedMs, source: p.source });
+      }
+    }
+    runtime.activePillories = list.filter(p => p.active || !p.summaryLogged);
+    runtime.active = runtime.activePillories.some(p => p.active);
+  }
+
+  function chooseWeighted(entries) {
+    const total = entries.reduce((sum, [,w]) => sum + w, 0);
+    let r = Math.random() * total;
+    for (const [name, w] of entries) { if ((r -= w) <= 0) return name; }
+    return entries[entries.length-1][0];
+  }
+
+  const SHARE_PRESETS = {
+    chatroom: { label: 'Chatroom', refreshMs: 24*HOUR, minPool: 12, maxPool: 15, shape: 'chatroom' },
+    forum: { label: 'Forum', refreshMs: 72*HOUR, minPool: 25, maxPool: 45, shape: 'forum' }
+  };
+
+  function normalizeShareLocation(locState, location, now=Date.now()) {
+    const preset = SHARE_PRESETS[location] || SHARE_PRESETS.chatroom;
+    const out = locState && typeof locState === 'object' ? locState : {};
+    const maxAudience = Number.isFinite(Number(out.maxAudience)) ? Number(out.maxAudience) : randInt(preset.minPool, preset.maxPool);
+    out.maxAudience = clampNum(maxAudience, preset.minPool, preset.maxPool);
+    out.exhaustion = clampNum(out.exhaustion || 0, 0, out.maxAudience);
+    out.lastUpdated = out.lastUpdated || now;
+    out.refreshMs = preset.refreshMs;
+    return out;
+  }
+
+  function updateLocationRecovery(locState, now) {
+    const elapsed = Math.max(0, now - (locState.lastUpdated || now));
+    const recovered = (elapsed / locState.refreshMs) * locState.maxAudience;
+    locState.exhaustion = Math.max(0, (locState.exhaustion || 0) - recovered);
+    locState.lastUpdated = now;
+  }
+
+  function expectedVisitorsForLocation(location, durationMs, eligible, pool) {
+    const minutes = durationMs / MINUTE;
+    const hours = durationMs / HOUR;
+    let expected = 0;
+    switch (location) {
+      case 'chatroom': {
+        // A chatroom is a fast burst, but it takes a little while for people to open the link.
+        // A useful 5–10 minute share should usually produce around 8–12 votes, with rare lows around 5 and rare highs around 13–15.
+        expected = pool * (1 - Math.exp(-minutes / 5.2));
+        expected *= randFloat(0.85, 1.08);
+        break;
+      }
+      case 'forum': {
+        // Forum traffic is slow: about 15 votes over 24 hours, usually 0 in a few minutes and 0–2 in the first hour.
+        expected = 15 * Math.max(0, hours / 24);
+        expected *= randFloat(0.85, 1.15);
+        break;
+      }
+    }
+    return Math.max(0, Math.min(eligible, poisson(expected)));
+  }
+
+  function randomOffsetForLocation(location, durationMs) {
+    const r = Math.random();
+    if (location === 'chatroom') {
+      const usefulWindow = Math.min(durationMs, 10 * MINUTE);
+      if (usefulWindow <= 45 * 1000) return Math.floor(randFloat(0.35, 1) * usefulWindow);
+      if (Math.random() < 0.12) return Math.floor(randFloat(30 * 1000, Math.min(2 * MINUTE, usefulWindow)));
+      if (Math.random() < 0.82) {
+        const a = Math.random();
+        const b = Math.random();
+        const midBias = (a + b) / 2;
+        return Math.floor(45 * 1000 + midBias * Math.max(1, Math.min(5.5 * MINUTE, usefulWindow) - 45 * 1000));
+      }
+      return Math.floor(randFloat(Math.min(5 * MINUTE, usefulWindow), usefulWindow));
+    }
+    if (location === 'forum') return Math.floor(durationMs * Math.pow(r, 0.95));
+    return Math.floor(durationMs * r);
+  }
+
+  function startShareLink(location, durationMs) {
+    const lock = getLock(); if (!lock || !rules()?.features?.shareLink?.enabled || durationMs <= 0) return;
+    if (!SHARE_PRESETS[location]) { toast('Invalid location'); return; }
+    if (lock.shareLink.active) { toast('Share already active'); return; }
+    const now = Date.now();
+    if (!lock.shareLink.locations) lock.shareLink.locations = {};
+    const loc = lock.shareLink.locations[location] = normalizeShareLocation(lock.shareLink.locations[location], location, now);
+    updateLocationRecovery(loc, now);
+    const eligible = Math.max(0, Math.floor(loc.maxAudience - loc.exhaustion));
+    const count = expectedVisitorsForLocation(location, durationMs, eligible, loc.maxAudience);
+    loc.exhaustion = Math.min(loc.maxAudience, loc.exhaustion + count);
+    loc.lastUpdated = now;
+    const queue = [];
+    for (let i = 0; i < count; i++) {
+      const removeChance = randFloat(1,5);
+      const type = chance(removeChance) ? 'remove' : 'add';
+      queue.push({ at: now + randomOffsetForLocation(location, durationMs), type, removeChance, resolved: false });
+    }
+    queue.sort((a,b) => a.at - b.at);
+    lock.shareLink.active = true;
+    lock.shareLink.startedAt = now;
+    lock.shareLink.endsAt = now + durationMs;
+    lock.shareLink.location = location;
+    lock.shareLink.queue = queue;
+    lock.shareLink.eventStats = { visitors: 0, addVotes: 0, removeVotes: 0, netMs: 0, location, durationMs };
+    lock.totals.shareEvents += 1;
+    addEvent('share_started', 'Share Link started', `${SHARE_PRESETS[location].label} for ${formatMs(durationMs)}.`, 'shareLink', { location, durationMs, scheduledVisitors: count });
+    recordObligationAction('shareLink');
+    toast('Share Link started', `${SHARE_PRESETS[location].label} is now active.`);
+    saveState(); render();
+  }
+
+  function processShare(lock, now) {
+    const s = lock.shareLink;
+    if (!s?.active) return;
+    const addMs = lock.sealedRules.features.shareLink.addPerVoteMs || 0;
+    const removeMs = lock.sealedRules.features.shareLink.removePerVoteMs || 0;
+    let addCount = 0, removeCount = 0;
+    for (const v of s.queue) {
+      if (!v.resolved && now >= v.at) {
+        v.resolved = true;
+        if (v.type === 'remove') removeCount += 1; else addCount += 1;
+      }
+    }
+    if (addCount) {
+      const amount = addCount * addMs;
+      s.visitors += addCount;
+      s.eventStats.visitors += addCount;
+      s.eventStats.addVotes += addCount;
+      s.eventStats.netMs += amount;
+      lock.totals.shareVisitors += addCount;
+      lock.totals.shareAddVotes += addCount;
+      lock.totals.shareNetTimeMs += amount;
+      addTime(amount, 'shareLink', 'Share Link visitor added time', `${addCount} visitor${addCount>1?'s':''}. ${formatMs(amount)} added.`);
+    }
+    if (removeCount) {
+      const amount = removeCount * removeMs;
+      s.visitors += removeCount;
+      s.eventStats.visitors += removeCount;
+      s.eventStats.removeVotes += removeCount;
+      s.eventStats.netMs -= amount;
+      lock.totals.shareVisitors += removeCount;
+      lock.totals.shareRemoveVotes += removeCount;
+      lock.totals.shareNetTimeMs -= amount;
+      removeTime(amount, 'shareLink', 'Share Link visitor removed time', `${removeCount} visitor${removeCount>1?'s':''}. ${formatMs(amount)} removed.`);
+    }
+    if (now >= s.endsAt) {
+      const st = s.eventStats || { visitors: 0, addVotes: 0, removeVotes: 0, netMs: 0, location: s.location };
+      s.active = false;
+      addEvent('share_ended', 'Share Link ended', `${SHARE_PRESETS[st.location]?.label || 'Location'}. Visitors: ${st.visitors}. Add votes: ${st.addVotes}. Remove votes: ${st.removeVotes}. Net: ${st.netMs >= 0 ? '+' : '-'}${formatMs(Math.abs(st.netMs))}.`, 'shareLink', st);
+    }
+  }
+
+  function startHygieneOpening() {
+    const lock = getLock(); if (!lock || !rules()?.features?.hygiene?.enabled) return;
+    const h = lock.hygiene;
+    const cfg = lock.sealedRules.features.hygiene;
+    const now = Date.now();
+    if (h.active) return;
+    if (now < h.availableAt) { toast('Hygiene opening unavailable'); return; }
+    h.active = true;
+    h.openedAt = now;
+    h.mustCloseBy = now + Math.max(MINUTE, cfg.allowedMs || 10 * MINUTE);
+    h.exceededApplied = false;
+    h.freezeDuringOpening = !!cfg.freezeDuringOpening;
+    h.remainingMsAtOpen = remainingMs(lock);
+    lock.totals.hygieneOpenings += 1;
+    addEvent('hygiene_started', 'Hygiene opening started', `Allowed time: ${formatMs(cfg.allowedMs)}.`, 'hygiene');
+    recordObligationAction('hygiene');
+    saveState(); render();
+  }
+
+  function closeHygieneOpening() {
+    const lock = getLock(); if (!lock?.hygiene?.active) return;
+    const h = lock.hygiene;
+    const cfg = lock.sealedRules.features.hygiene;
+    const now = Date.now();
+    if (h.freezeDuringOpening && !lock.freeze?.active) lock.currentUnlockAt = now + Math.max(0, h.remainingMsAtOpen || 0);
+    if (now > h.mustCloseBy && !h.exceededApplied) applyHygieneExceeded(lock);
+    h.active = false;
+    h.openedAt = null;
+    h.mustCloseBy = null;
+    h.freezeDuringOpening = false;
+    h.remainingMsAtOpen = 0;
+    h.availableAt = now + Math.max(MINUTE, cfg.regularityMs || DAY);
+    addEvent('hygiene_closed', 'Hygiene opening closed', 'Hygiene opening closed.', 'hygiene');
+    saveState(); render();
+  }
+
+  function processHygiene(lock, now) {
+    const h = lock.hygiene;
+    if (!h?.active) return;
+    if (now > h.mustCloseBy && !h.exceededApplied) applyHygieneExceeded(lock);
+  }
+
+  function applyHygieneExceeded(lock) {
+    lock.hygiene.exceededApplied = true;
+    lock.totals.hygieneExceeded += 1;
+    addEvent('hygiene_exceeded', 'Hygiene opening exceeded', 'Allowed opening time was exceeded.', 'hygiene');
+    applyPenaltyGroup(lock.sealedRules.features.hygiene.penalties, 'hygiene');
+  }
+
+  function rollUnlockGamble() {
+    const lock = getLock(); if (!lock) return;
+    const cfg = lock.sealedRules.extensions.unlockGamble;
+    const rt = lock.extensions.unlockGamble;
+    if (!cfg.enabled || remainingMs(lock) > 0) return;
+    lock.totals.unlockGambleRolls += 1;
+    const total = cfg.unlockWeight + cfg.deniedWeight;
+    const r = Math.random() * total;
+    if (r < cfg.unlockWeight) {
+      rt.unlocked = true;
+      addEvent('unlock_gamble_won', 'Unlock Gamble won', 'Completion permitted.', 'unlockGamble');
+      toast('Unlock Gamble won', 'Completion permitted.');
+    } else {
+      lock.totals.unlockGambleDenied += 1;
+      addEvent('unlock_gamble_denied', 'Unlock denied', 'Denied penalties applied.', 'unlockGamble');
+      applyPenaltyGroup(cfg.penalties, 'unlockGamble');
+      toast('Unlock denied', 'Penalties applied.');
+    }
+    setExpiredIfNeeded(lock);
+    saveState(); render();
+  }
+
+  function buyStoreItem(item) {
+    const lock = getLock(); if (!lock || !lock.sealedRules.extensions.rewardStore.enabled) return;
+    if (item === 'removeTime') {
+      const { cost, amountMs } = STORE.removeTime;
+      if (lock.points < cost) return toast('Not enough points');
+      lock.points -= cost; removeTime(amountMs, 'rewardStore', 'Reward Store: remove time'); toast('Reward bought', `${formatMs(amountMs)} removed.`);
+    }
+    if (item === 'unfreeze') {
+      const { cost } = STORE.unfreeze;
+      if (lock.points < cost) return toast('Not enough points');
+      if (!lock.freeze?.active) return toast('Lock is not frozen');
+      lock.points -= cost; unfreezeLock('rewardStore', 'Unfreeze bought.'); toast('Reward bought', 'Lock unfrozen.');
+    }
+    if (item === 'reduceVisitors') {
+      const { cost, amount } = STORE.reduceVisitors;
+      if (!rules()?.features?.shareLink?.enabled) return toast('Share Link is disabled');
+      if (lock.points < cost) return toast('Not enough points');
+      lock.points -= cost;
+      lock.shareLink.requiredVisitors = Math.max(0, lock.shareLink.requiredVisitors - amount);
+      addEvent('reward_store_visitors', 'Reward Store: visitors reduced', `${amount} required visitors removed.`, 'rewardStore');
+      toast('Reward bought', `${amount} required visitors removed.`);
+    }
+    saveState(); render();
+  }
+
+  function titleCase(str) {
+    return String(str).replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+  }
+
+  function render() {
+    processRuntime();
+    const lock = getLock();
+    if (state.tab === 'seal' && lock) state.tab = 'dashboard';
+    const app = document.getElementById('app');
+    app.className = '';
+    app.innerHTML = `
+      <div class="app-shell">
+        ${renderSidebar()}
+        <main class="main">
+          ${renderTopbar()}
+          ${renderTab()}
+        </main>
+        ${renderMobileNav()}
+      </div>
+      <div class="toast-wrap" id="toastWrap"></div>
+    `;
+    bindCommon();
+    renderToasts();
+  }
+
+  function renderSidebar() {
+    const lock = getLock();
+    return `<aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">${lockSvg()}</div>
+        <h1>CageKeeper</h1>
+        <p>Self-lock vault</p>
+      </div>
+      <nav class="nav">${navButtons()}</nav>
+      <div class="side-status">
+        <strong>${lock ? statusText(lock) : 'No active lock'}</strong>
+        ${lock ? `${formatMs(remainingMs(lock), { full: false })} remaining` : 'Seal a new lock to begin.'}
+      </div>
+    </aside>`;
+  }
+
+  function renderMobileNav() {
+    return `<div class="mobile-nav"><div class="mobile-nav-inner">${navButtons(true)}</div></div>`;
+  }
+
+  function navButtons(mobile=false) {
+    const lock = getLock();
+    const tabs = [
+      ['dashboard','◆','Dashboard'],
+      ['seal','◇','Seal'],
+      ['history','☷','History'],
+      ['stats','◈','Stats'],
+      ['settings','⚙','Settings']
+    ];
+    return tabs.map(([id, icon, label]) => {
+      const locked = id === 'seal' && lock;
+      return `<button class="nav-btn ${state.tab===id?'active':''} ${locked?'locked':''}" data-tab="${id}" ${locked?'disabled':''}><span class="nav-icon">${icon}</span>${mobile ? label.split(' ')[0] : label}</button>`;
+    }).join('');
+  }
+
+  function renderTopbar() {
+    const titles = {
+      dashboard: ['Dashboard', 'Current lock state and available actions.'],
+      seal: ['Seal', 'Choose duration, features, and extensions.'],
+      history: ['History', 'Timeline and completed lock archive.'],
+      stats: ['Stats', 'Current and lifetime records.'],
+      settings: ['Settings', 'Local app controls.']
+    };
+    const [title, sub] = titles[state.tab] || titles.dashboard;
+    const lock = getLock();
+    return `<div class="topbar"><div><h2>${esc(title)}</h2><p>${esc(sub)}</p></div><div class="status-pill">${lock ? `Status: <b>${statusText(lock)}</b>` : 'No active lock'}</div></div>`;
+  }
+
+  function renderTab() {
+    if (state.tab === 'seal') return renderSeal();
+    if (state.tab === 'history') return renderHistory();
+    if (state.tab === 'stats') return renderStats();
+    if (state.tab === 'settings') return renderSettings();
+    return renderDashboard();
+  }
+
+  function renderDashboard() {
+    const lock = getLock();
+    if (!lock) {
+      return `<section class="grid"><div class="card span-8"><h3>No lock is active</h3><p>The Seal tab is open. Choose an initial duration and optional modules to start a new lock.</p><div class="btn-row"><button class="btn primary" data-tab="seal">Open Seal</button></div></div><div class="card span-4"><h3>CageKeeper v${VERSION}</h3><p>Dark self-lock system with frozen rules per lock.</p></div></section>`;
+    }
+    setExpiredIfNeeded(lock);
+    return `<section class="grid">
+      <div class="card timer-card span-8">${renderTimer(lock)}${renderCompletionPanel(lock)}</div>
+      <div class="card span-4">${renderQuickStats(lock)}</div>
+      ${renderActiveFeatureCards(lock)}
+      ${renderExtensionActionCards(lock)}
+      <div class="card span-12"><div class="section-title"><div><h3>Recent Timeline</h3><p>Latest lock events.</p></div></div>${renderLog(lock.timeline.slice(0,8))}</div>
+    </section>`;
+  }
+
+  function renderTimer(lock) {
+    const rem = remainingMs(lock);
+    const p = msToParts(rem);
+    const frozen = !!lock.freeze?.active;
+    const title = frozen ? 'LOCK IS FROZEN' : statusText(lock).toUpperCase();
+    return `<div class="timer-label"><span class="${frozen?'frozen-title':''}">${frozen ? '<span class="freeze-badge">❄</span>' : ''}${title}</span><span>Started ${fmtDate(lock.startedAt)}</span></div>
+      <div class="timer ${frozen?'frozen':''}">
+        ${timerUnit(p.d, 'Days')}${timerUnit(p.h, 'Hours')}${timerUnit(p.m, 'Minutes')}${timerUnit(p.s, 'Seconds')}
+      </div>`;
+  }
+
+  function timerUnit(v, label) { return `<div class="timer-unit"><strong>${String(v).padStart(2,'0')}</strong><span>${label}</span></div>`; }
+
+  function renderCompletionPanel(lock) {
+    if (remainingMs(lock) > 0) return '';
+    const blockers = completionBlockers(lock);
+    const gambleNeeded = rules()?.extensions?.unlockGamble?.enabled && !lock.extensions.unlockGamble.unlocked;
+    return `<div class="hr"></div><div class="notice"><strong class="gold">Timer expired</strong><p class="muted" style="margin:6px 0 0">${blockers.length ? blockers.join(' ') : 'Completion is available.'}</p><div class="btn-row">
+      ${gambleNeeded && !lock.freeze?.active ? `<button class="btn gold" data-action="roll-unlock-gamble">Roll Unlock Gamble</button>` : ''}
+      <button class="btn primary" data-action="complete-lock" ${blockers.length?'disabled':''}>Complete Lock</button>
+    </div></div>`;
+  }
+
+  function renderQuickStats(lock) {
+    return `<h3>Lock Summary</h3><div class="stats-grid" style="grid-template-columns:1fr 1fr">
+      ${stat('Original', formatMs(lock.originalDurationMs))}
+      ${stat('Points', String(lock.points))}
+      ${stat('Added', formatMs(lock.totals.timeAddedMs))}
+      ${stat('Removed', formatMs(lock.totals.timeRemovedMs))}
+      ${stat('Pillory votes', String(lock.totals.pilloryVotes))}
+      ${stat('Visitors', rules()?.features?.shareLink?.enabled ? `${lock.shareLink.visitors}/${lock.shareLink.requiredVisitors}` : '—')}
+    </div>`;
+  }
+
+  function renderActiveFeatureCards(lock) {
+    return `${renderHygieneCard(lock)}${renderPilloryCard(lock)}${renderShareCard(lock)}${renderRewardStoreCard(lock)}`;
+  }
+
+  function renderHygieneCard(lock) {
+    if (!rules()?.features?.hygiene?.enabled) return '';
+    const h = lock.hygiene;
+    if (h.active) {
+      const left = Math.max(0, h.mustCloseBy - Date.now());
+      return `<div class="card span-6"><h3>Hygiene Opening Active</h3><p>Allowed time left: <b class="gold">${formatMs(left, {full:true})}</b></p><button class="btn primary" data-action="close-hygiene">Close Opening</button></div>`;
+    }
+    const available = Date.now() >= h.availableAt;
+    return `<div class="card span-6"><h3>Hygiene Opening</h3><p>${available ? 'Opening is available.' : `Available in ${formatMs(h.availableAt - Date.now())}.`}</p><button class="btn primary" data-action="start-hygiene" ${available?'':'disabled'}>Start Hygiene Opening</button></div>`;
+  }
+
+  function renderPilloryCard(lock) {
+    if (!rules()?.features?.pillory?.enabled) return '';
+    const runtime = lock.pillory;
+    const active = (runtime?.activePillories || []).filter(p => p.active);
+    if (!active.length) return `<div class="card span-6"><h3>Pillory</h3><p>No Pillory event is active.</p></div>`;
+    const cards = active.map((p, i) => `<div class="sub-panel"><h4>Pillory #${i + 1}</h4><div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">${stat('Votes', p.votes)}${stat('Added', formatMs(p.addedMs))}${stat('Time left', formatMs(p.endsAt - Date.now()))}</div></div>`).join('');
+    return `<div class="card span-12"><h3>${active.length > 1 ? 'Pillories Active' : 'Pillory Active'}</h3>${cards}</div>`;
+  }
+
+  function renderShareCard(lock) {
+    if (!rules()?.features?.shareLink?.enabled) return '';
+    const s = lock.shareLink;
+    if (s.active) {
+      const st = s.eventStats || { visitors: 0, addVotes: 0, removeVotes: 0, netMs: 0 };
+      return `<div class="card span-12"><h3>Link Shared</h3><div class="stats-grid">${stat('Location', SHARE_PRESETS[s.location]?.label || '—')}${stat('Visitors', `${s.visitors}/${s.requiredVisitors}`)}${stat('Add votes', st.addVotes)}${stat('Remove votes', st.removeVotes)}${stat('Net', `${st.netMs >= 0 ? '+' : '-'}${formatMs(Math.abs(st.netMs))}`)}${stat('Time left', formatMs(s.endsAt - Date.now()))}</div></div>`;
+    }
+    return `<div class="card span-12"><h3>Share Link</h3><p>Choose how long to share and where to simulate traffic.</p><div class="form-grid"><div class="field third"><label class="label">Location</label><select id="shareLocation"><option value="chatroom">Chatroom</option><option value="forum">Forum</option></select></div><div class="field span-8">${timeStepper('shareDuration','Share Duration',state.seal.shareDuration || {d:0,h:1,m:0})}</div></div><div class="btn-row"><button class="btn primary" data-action="start-share">Start Sharing</button></div></div>`;
+  }
+
+  function renderRewardStoreCard(lock) {
+    if (!rules()?.extensions?.rewardStore?.enabled) return '';
+    const shareEnabled = rules()?.features?.shareLink?.enabled;
+    return `<div class="card span-12"><h3>Reward Store</h3><p>Points: <b class="gold">${lock.points}</b></p><div class="stats-grid">
+      <div class="stat"><span class="k">Remove 30 minutes</span><span class="v small">100 points</span><button class="btn full" data-action="buy-remove-time">Buy</button></div>
+      <div class="stat"><span class="k">Unfreeze lock</span><span class="v small">250 points</span><button class="btn full" data-action="buy-unfreeze" ${lock.freeze?.active?'':'disabled'}>Buy</button></div>
+      <div class="stat"><span class="k">Reduce visitors by 5</span><span class="v small">150 points</span><button class="btn full" data-action="buy-reduce-visitors" ${shareEnabled?'':'disabled'}>Buy</button></div>
+    </div></div>`;
+  }
+
+  function renderExtensionActionCards(lock) {
+    const e = rules()?.extensions;
+    let html = '';
+    if (e.dailyCheckIn.enabled) html += renderDailyCheckInAction(lock);
+    if (e.dice.enabled) html += renderDiceAction(lock);
+    if (e.evilDice.enabled) html += renderEvilDiceAction(lock);
+    if (e.wheel.enabled) html += renderWheelAction(lock);
+    if (e.bigBlackDeck.enabled) html += renderBigBlackDeckAction(lock);
+    if (e.tasks.enabled) html += renderTasksAction(lock);
+    if (e.randomEvents.enabled) html += `<div class="card span-4"><h3>Random Events</h3><p>Difficulty: <b class="gold">${titleCase(e.randomEvents.difficulty)}</b></p><small>Checks resolve automatically.</small></div>`;
+    if (e.obligations.enabled) html += renderObligationsAction(lock);
+    return html;
+  }
+
+  function renderDailyCheckInAction(lock) {
+    const rt = lock.extensions.dailyCheckIn;
+    return `<div class="card span-4"><h3>Daily Check-In</h3>${rt.available ? `<p>Check-in is available.</p><button class="btn primary" data-action="complete-checkin">Check In</button>` : `<p>Next check-in in ${formatMs(rt.nextAt - Date.now())}.</p>`}</div>`;
+  }
+
+  function renderDiceAction(lock) {
+    const rt = lock.extensions.dice;
+    return `<div class="card span-4"><h3>Dice</h3><p>Stored rolls: <b class="gold">${rt.stored}</b></p><button class="btn primary" data-action="roll-dice" ${rt.stored>0?'':'disabled'}>Roll Dice</button></div>`;
+  }
+
+  function renderEvilDiceAction(lock) {
+    const rt = lock.extensions.evilDice;
+    const cfg = rules().extensions.evilDice;
+    const stored = cfg.mode === 'unlimited' ? 'Unlimited' : rt.stored;
+    const last = rt.lastRoll ? `<p class="muted">Last roll: side ${rt.lastRoll.rolled} — ${esc(rt.lastRoll.detail)}</p>` : '';
+    return `<div class="card span-4"><h3>Evil Dice</h3><p>Current die: <b class="gold">D${rt.sides?.length || 2}</b></p><p>Stored rolls: <b class="gold">${stored}</b></p>${last}<button class="btn primary" data-action="roll-evil-dice" ${(cfg.mode==='unlimited'||rt.stored>0)?'':'disabled'}>Roll Evil Dice</button></div>`;
+  }
+
+  function renderWheelAction(lock) {
+    const rt = lock.extensions.wheel;
+    const mode = rules().extensions.wheel.mode;
+    const stored = mode === 'unlimited' ? 'Unlimited' : rt.stored;
+    return `<div class="card span-4"><h3>Wheel of Fortune</h3><p>Stored spins: <b class="gold">${stored}</b></p><button class="btn primary" data-action="spin-wheel" ${(mode==='unlimited'||rt.stored>0)?'':'disabled'}>Spin Wheel</button></div>`;
+  }
+
+  function renderBigBlackDeckAction(lock) {
+    const rt = lock.extensions.bigBlackDeck;
+    const cfg = rules().extensions.bigBlackDeck;
+    const stored = cfg.mode === 'unlimited' ? 'Unlimited' : rt.stored;
+    if (rt.currentHand) {
+      const hand = rt.currentHand.map((c, i) => `<button class="bbd-card-back" data-action="choose-bbd-card" data-index="${i}" title="Choose card ${i+1}"><img src="${BIG_BLACK_DECK_CARD_BACK}" alt="Face-down card"></button>`).join('');
+      return `<div class="card span-12"><h3>Big Black Deck</h3><p>Choose one face-down card.</p><div class="bbd-hand">${hand}</div></div>`;
+    }
+    const last = rt.lastCard ? `<div class="bbd-last"><img src="${escAttr(rt.lastCard.img)}" alt="${escAttr(rt.lastCard.name)}"><div><strong>${esc(rt.lastCard.name)}</strong><p>${esc(rt.lastCard.text)}</p></div></div>` : '';
+    return `<div class="card span-8"><h3>Big Black Deck</h3><p>Stored hands: <b class="gold">${stored}</b></p><p>Deck: <b class="gold">${rt.deck?.length || 0}</b> cards left before reshuffle check.</p>${last}<button class="btn primary" data-action="deal-bbd-hand" ${(cfg.mode==='unlimited'||rt.stored>0)?'':'disabled'}>Deal Hand</button></div>`;
+  }
+
+  function renderTasksAction(lock) {
+    const rt = lock.extensions.tasks;
+    const t = rt.activeTask;
+    return `<div class="card span-8"><h3>Tasks</h3>${t ? `<p><b class="gold">${esc(t.name)}</b></p>${t.description ? `<p>${esc(t.description)}</p>` : ''}<div class="btn-row"><button class="btn primary" data-action="task-complete">Complete</button><button class="btn danger" data-action="task-fail">Fail</button></div>` : `<p>No active task. Stored tasks: <b class="gold">${rt.stored}</b></p>`}</div>`;
+  }
+
+  function renderObligationsAction(lock) {
+    const cfg = rules().extensions.obligations;
+    const rt = lock.extensions.obligations;
+    const rows = (cfg.rules || []).map(rule => {
+      const r = (rt.rules || []).find(x => x.id === rule.id) || {};
+      const status = r.available ? `Due now — ${formatMs((r.windowEndsAt || Date.now()) - Date.now())} left` : `Next due in ${formatMs((r.nextAt || Date.now()) - Date.now())}`;
+      const cls = r.available ? 'gold' : 'muted';
+      return `<div class="sub-panel"><h4>${esc(rule.name)}</h4><p class="${cls}">${esc(status)}</p><p class="muted">Action: ${esc(obligationActionLabel(rule.action))}. Failure: ${esc(obligationPenaltyLabel(rule.penalty))}.</p></div>`;
+    }).join('') || '<div class="empty">No obligations configured.</div>';
+    return `<div class="card span-12"><h3>Obligations</h3>${rows}</div>`;
+  }
+
+  function renderSeal() {
+    const s = state.seal;
+    return `<section class="grid">
+      <div class="card span-12"><div class="section-title"><div><h3>Initial Duration</h3><p>CageKeeper chooses a random duration between minimum and maximum.</p></div></div><div class="split">${timeStepper('duration.min','Minimum Duration',s.duration.min)}${timeStepper('duration.max','Maximum Duration',s.duration.max)}</div></div>
+      <div class="card span-12"><div class="section-title"><div><h3>Features</h3><p>Core lock systems available to this lock.</p></div></div>${renderFeatureSettings()}</div>
+      <div class="card span-12"><div class="section-title"><div><h3>Extensions</h3><p>Optional modules frozen into the lock when sealed.</p></div></div>${renderExtensionSettings()}</div>
+      <div class="card span-12"><button class="btn primary full" data-action="seal-lock">Seal Lock</button></div>
+    </section>`;
+  }
+
+  function renderFeatureSettings() {
+    const f = state.seal.features;
+    return `${toggleBox('features.freeze.enabled','Freeze','Allow modules to freeze and unfreeze the lock.',f.freeze.enabled)}
+      ${featureBox('features.hygiene.enabled','Hygiene Opening','Temporary openings with penalties for exceeding allowed time.',f.hygiene.enabled, renderHygieneSettings())}
+      ${featureBox('features.pillory.enabled','Pillory','Simulated voting that adds time per vote.',f.pillory.enabled, renderPillorySettings())}
+      ${featureBox('features.shareLink.enabled','Share Link','Simulated visitor voting with completion requirement.',f.shareLink.enabled, renderShareSettings())}`;
+  }
+
+  function featureBox(path,title,desc,enabled,inner) { return `<div class="feature-box ${enabled?'':'disabled'}">${toggleBox(path,title,desc,enabled)}${enabled?`<div class="sub-panel">${inner}</div>`:''}</div>`; }
+  function extensionBox(path,title,desc,enabled,inner) { return `<div class="extension-box ${enabled?'':'disabled'}">${toggleBox(path,title,desc,enabled)}${enabled?`<div class="sub-panel">${inner}</div>`:''}</div>`; }
+
+  function toggleBox(path,title,desc,enabled) {
+    return `<div class="toggle-row"><div><strong>${esc(title)}</strong><span>${esc(desc)}</span></div><label class="toggle"><input type="checkbox" data-bind="${path}" ${enabled?'checked':''}><i></i></label></div>`;
+  }
+
+  function renderHygieneSettings() {
+    const h = state.seal.features.hygiene;
+    return `<div class="split">${timeStepper('features.hygiene.regularity','Regularity',h.regularity)}${timeStepper('features.hygiene.allowed','Time Allowed',h.allowed)}</div>
+      ${toggleBox('features.hygiene.freezeDuringOpening','Freeze Lock During Opening','Pause the lock countdown while the opening is active.',h.freezeDuringOpening)}
+      <h4>Penalty for exceeding time</h4>${penaltySettings('features.hygiene.penalties',h.penalties,true,true)}`;
+  }
+
+  function renderPillorySettings() {
+    return `${timeStepper('features.pillory.timePerVote','Time Per Vote',state.seal.features.pillory.timePerVote)}<p class="muted" style="margin-top:12px">Voting is simulated. Hidden intensity is chosen when Pillory starts.</p>`;
+  }
+
+  function renderShareSettings() {
+    const sh = state.seal.features.shareLink;
+    return `<div class="split">${timeStepper('features.shareLink.addPerVote','Time Added Per Vote',sh.addPerVote)}${timeStepper('features.shareLink.removePerVote','Time Removed Per Vote',sh.removePerVote)}</div><div class="field" style="margin-top:14px"><label class="label">Visitors Required Before Completion</label><input type="number" min="0" data-bind="features.shareLink.visitorsRequired" value="${sh.visitorsRequired}"></div>`;
+  }
+
+  function renderExtensionSettings() {
+    const e = state.seal.extensions;
+    return `${extensionBox('extensions.dailyCheckIn.enabled','Daily Check-In','Requires a recurring check-in window.',e.dailyCheckIn.enabled, renderDailySettings())}
+      ${extensionBox('extensions.dice.enabled','Dice','Dealer versus user dice roll.',e.dice.enabled, renderDiceSettings())}
+      ${extensionBox('extensions.evilDice.enabled','Evil Dice','A growing die where every roll adds a more dangerous side.',e.evilDice.enabled, renderEvilDiceSettings())}
+      ${extensionBox('extensions.wheel.enabled','Wheel of Fortune','Equal-chance wheel slices.',e.wheel.enabled, renderWheelSettings())}
+      ${extensionBox('extensions.bigBlackDeck.enabled','Big Black Deck','Choose one face-down card from a hidden hand.',e.bigBlackDeck.enabled, renderBigBlackDeckSettings())}
+      ${extensionBox('extensions.tasks.enabled','Tasks','Single random task per roll. Completed tasks award 1–100 points.',e.tasks.enabled, renderTaskSettings())}
+      ${extensionBox('extensions.randomEvents.enabled','Random Events','Predefined events based on difficulty.',e.randomEvents.enabled, renderRandomEventSettings())}
+      ${extensionBox('extensions.unlockGamble.enabled','Unlock Gamble','Completion gamble required when timer reaches zero.',e.unlockGamble.enabled, renderUnlockGambleSettings())}
+      ${extensionBox('extensions.rewardStore.enabled','Reward Store','Permanent store options using task points.',e.rewardStore.enabled, `<p class="muted">Permanent options: Remove Time, Unfreeze, Reduce Required Visitors.</p>`)}
+      ${extensionBox('extensions.obligations.enabled','Obligations','Mandatory scheduled actions with penalties if missed.',e.obligations.enabled, renderObligationsSettings())}`;
+  }
+
+  function renderDailySettings() {
+    const d = state.seal.extensions.dailyCheckIn;
+    return `<div class="split">${timeStepper('extensions.dailyCheckIn.regularity','Check-In Regularity',d.regularity)}${timeStepper('extensions.dailyCheckIn.window','Check-In Window',d.window)}</div><h4>Missed Check-In Penalties</h4>${penaltySettings('extensions.dailyCheckIn.penalties',d.penalties,true,true)}`;
+  }
+
+  function renderDiceSettings() {
+    const d = state.seal.extensions.dice;
+    return `<div class="form-grid"><div class="field half"><label class="label">Extension Mode</label><select data-bind="extensions.dice.mode"><option value="nonCumulative" ${d.mode==='nonCumulative'?'selected':''}>Non-cumulative</option><option value="cumulative" ${d.mode==='cumulative'?'selected':''}>Cumulative</option></select></div><div class="field half"><label class="label">Dice Type</label><select data-bind="extensions.dice.diceType"><option value="4" ${d.diceType==4?'selected':''}>D4</option><option value="6" ${d.diceType==6?'selected':''}>D6</option><option value="10" ${d.diceType==10?'selected':''}>D10</option><option value="20" ${d.diceType==20?'selected':''}>D20</option></select></div></div><div class="split" style="margin-top:14px">${timeStepper('extensions.dice.regularity','Regularity Time',d.regularity)}${timeStepper('extensions.dice.multiplier','Time Multiplier',d.multiplier)}</div>`;
+  }
+
+  function renderEvilDiceSettings() {
+    const d = state.seal.extensions.evilDice;
+    return `<div class="form-grid"><div class="field half"><label class="label">Extension Mode</label><select data-bind="extensions.evilDice.mode"><option value="nonCumulative" ${d.mode==='nonCumulative'?'selected':''}>Non-cumulative</option><option value="cumulative" ${d.mode==='cumulative'?'selected':''}>Cumulative</option><option value="unlimited" ${d.mode==='unlimited'?'selected':''}>Unlimited</option></select></div></div>${d.mode==='unlimited'?'':`<div style="margin-top:14px">${timeStepper('extensions.evilDice.regularity','Regularity Time',d.regularity)}</div>`}<p class="muted" style="margin-top:12px">Starts as D2: side 1 removes 1 hour, side 2 adds 2 hours. Every roll adds one hidden new side.</p>`;
+  }
+
+  function renderWheelSettings() {
+    const w = state.seal.extensions.wheel;
+    return `<div class="form-grid"><div class="field half"><label class="label">Extension Mode</label><select data-bind="extensions.wheel.mode"><option value="nonCumulative" ${w.mode==='nonCumulative'?'selected':''}>Non-cumulative</option><option value="cumulative" ${w.mode==='cumulative'?'selected':''}>Cumulative</option><option value="unlimited" ${w.mode==='unlimited'?'selected':''}>Unlimited</option></select></div></div>${w.mode==='unlimited'?'':`<div style="margin-top:14px">${timeStepper('extensions.wheel.regularity','Regularity Time',w.regularity)}</div>`}<div class="hr"></div><h4>Wheel Slices</h4>${renderWheelSlices(w.slices)}`;
+  }
+
+  function renderWheelSlices(slices) {
+    const rows = (slices || []).map((s, i) => `<tr><td><input type="text" data-slice-index="${i}" data-slice-field="label" value="${escAttr(s.label || '')}"></td><td><select data-slice-index="${i}" data-slice-field="effect">${['addTime','removeTime','addRemoveTime','freeze','unfreeze','freezeUnfreeze','pillory','nothing'].map(e=>`<option value="${e}" ${s.effect===e?'selected':''}>${effectLabel(e)}</option>`).join('')}</select></td><td>${sliceNeedsTime(s.effect) ? `<button class="btn ghost" data-action="edit-slice-time" data-index="${i}">${formatMs(timeObjToMs(s.effect==='pillory'?s.duration:s.amount))}</button>` : '—'}</td><td><button class="btn danger" data-action="remove-slice" data-index="${i}">Remove</button></td></tr>`).join('');
+    return `<table class="table"><thead><tr><th>Label</th><th>Effect</th><th>Time</th><th></th></tr></thead><tbody>${rows}</tbody></table><button class="btn" data-action="add-slice">Add Slice</button>`;
+  }
+
+  function sliceNeedsTime(effect) { return ['addTime','removeTime','addRemoveTime','pillory'].includes(effect); }
+  function effectLabel(e) { return ({addTime:'Add Time',removeTime:'Remove Time',addRemoveTime:'Add / Remove Time',freeze:'Freeze',unfreeze:'Unfreeze',freezeUnfreeze:'Freeze / Unfreeze',pillory:'Pillory',nothing:'Nothing'})[e] || e; }
+
+  function renderBigBlackDeckSettings() {
+    const d = state.seal.extensions.bigBlackDeck;
+    const selected = d.selectedCardIds || [];
+    const cards = BIG_BLACK_DECK_CARDS.map(card => `<button type="button" class="deck-select-card ${selected.includes(card.id)?'selected':''}" data-action="toggle-bbd-card" data-card-id="${card.id}"><img src="${card.img}" alt="${escAttr(card.name)}"><span>${esc(card.name)}</span><small>${esc(card.text)}</small></button>`).join('');
+    return `<div class="form-grid"><div class="field third"><label class="label">Extension Mode</label><select data-bind="extensions.bigBlackDeck.mode"><option value="nonCumulative" ${d.mode==='nonCumulative'?'selected':''}>Non-cumulative</option><option value="cumulative" ${d.mode==='cumulative'?'selected':''}>Cumulative</option><option value="unlimited" ${d.mode==='unlimited'?'selected':''}>Unlimited</option></select></div><div class="field third"><label class="label">Hand Size</label><input type="number" min="2" max="5" data-bind="extensions.bigBlackDeck.handSize" value="${d.handSize}"></div></div>${d.mode==='unlimited'?'':`<div style="margin-top:14px">${timeStepper('extensions.bigBlackDeck.regularity','Regularity Time',d.regularity)}</div>`}<div class="hr"></div><h4>Card Library</h4><p class="muted">Selected cards are copied 5 times into the deck. The deck reshuffles after half of the total cards have been picked.</p><div class="deck-select-grid">${cards}</div>`;
+  }
+
+  function renderTaskSettings() {
+    const t = state.seal.extensions.tasks;
+    return `<div class="form-grid"><div class="field half"><label class="label">Extension Mode</label><select data-bind="extensions.tasks.mode"><option value="nonCumulative" ${t.mode==='nonCumulative'?'selected':''}>Non-cumulative</option><option value="cumulative" ${t.mode==='cumulative'?'selected':''}>Cumulative</option></select></div></div><div style="margin-top:14px">${timeStepper('extensions.tasks.regularity','Regularity Time',t.regularity)}</div><div class="hr"></div><h4>Task List</h4>${renderTaskList(t.taskList)}<div class="hr"></div><h4>Failed Task Penalties</h4>${penaltySettings('extensions.tasks.penalties',t.penalties,true,true)}`;
+  }
+
+  function renderTaskList(list) {
+    const rows = (list || []).map((t, i) => `<tr><td><input type="text" data-task-index="${i}" data-task-field="name" value="${escAttr(t.name || '')}"></td><td><input type="text" data-task-index="${i}" data-task-field="description" value="${escAttr(t.description || '')}" placeholder="Optional"></td><td><button class="btn danger" data-action="remove-task" data-index="${i}">Remove</button></td></tr>`).join('');
+    return `<table class="table"><thead><tr><th>Name</th><th>Description</th><th></th></tr></thead><tbody>${rows}</tbody></table><button class="btn" data-action="add-task">Add Task</button>`;
+  }
+
+  function renderRandomEventSettings() {
+    const r = state.seal.extensions.randomEvents;
+    return `<label class="label">Difficulty</label><select data-bind="extensions.randomEvents.difficulty"><option value="easy" ${r.difficulty==='easy'?'selected':''}>Easy</option><option value="normal" ${r.difficulty==='normal'?'selected':''}>Normal</option><option value="hard" ${r.difficulty==='hard'?'selected':''}>Hard</option><option value="expert" ${r.difficulty==='expert'?'selected':''}>Expert</option></select><p class="muted" style="margin-top:12px">Events use time, freeze, unfreeze, Pillory, or nothing.</p>`;
+  }
+
+  function renderUnlockGambleSettings() {
+    const u = state.seal.extensions.unlockGamble;
+    const shareEnabled = state.seal.features.shareLink.enabled;
+    return `<div class="form-grid"><div class="field half"><label class="label">Unlock Weight</label><input type="number" min="0" data-bind="extensions.unlockGamble.unlockWeight" value="${u.unlockWeight}"></div><div class="field half"><label class="label">Denied Weight</label><input type="number" min="0" data-bind="extensions.unlockGamble.deniedWeight" value="${u.deniedWeight}"></div></div><div class="hr"></div><h4>Denied Penalties</h4>${penaltySettings('extensions.unlockGamble.penalties',u.penalties,true,true,shareEnabled)}`;
+  }
+
+  function renderObligationsSettings() {
+    const o = state.seal.extensions.obligations;
+    const rows = (o.rules || []).map((r, i) => renderObligationRuleSettings(r, i)).join('');
+    return `<p class="muted">Create mandatory actions. If a due action is not completed inside its window, the assigned penalty triggers.</p>${rows || '<div class="empty">No obligations yet.</div>'}<div class="btn-row"><button class="btn" data-action="add-obligation">Add Obligation</button></div>`;
+  }
+
+  function renderObligationRuleSettings(r, i) {
+    const p = r.penalty || defaultObligationRule().penalty;
+    return `<div class="sub-panel obligation-rule"><div class="section-title"><div><h4>${esc(r.name || 'Obligation')}</h4><p>Rule ${i + 1}</p></div><button class="btn danger" data-action="remove-obligation" data-index="${i}">Remove</button></div><div class="form-grid"><div class="field half"><label class="label">Name</label><input type="text" data-bind="extensions.obligations.rules.${i}.name" value="${escAttr(r.name || '')}"></div><div class="field half"><label class="label">Required Action</label><select data-bind="extensions.obligations.rules.${i}.action">${obligationActionOptions(r.action)}</select></div></div><div class="split" style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.regularity`,'Regularity',r.regularity)}${timeStepper(`extensions.obligations.rules.${i}.window`,'Completion Window',r.window)}</div><div class="hr"></div><h4>Failure Penalty</h4><div class="form-grid"><div class="field third"><label class="label">Penalty Type</label><select data-bind="extensions.obligations.rules.${i}.penalty.type">${obligationPenaltyOptions(p.type)}</select></div></div>${renderObligationPenaltyValue(i, p)}</div>`;
+  }
+
+  function obligationActionOptions(current) {
+    const opts = [
+      ['evilDice','Roll Evil Dice'], ['bigBlackDeck','Play Big Black Deck'], ['dice','Roll Dice'], ['wheel','Spin Wheel'], ['task','Complete Task'], ['dailyCheckIn','Daily Check-In'], ['shareLink','Use Share Link'], ['hygiene','Start Hygiene Opening']
+    ];
+    return opts.map(([v,l]) => `<option value="${v}" ${current===v?'selected':''}>${l}</option>`).join('');
+  }
+
+  function obligationActionLabel(v) {
+    return ({evilDice:'Roll Evil Dice',bigBlackDeck:'Play Big Black Deck',dice:'Roll Dice',wheel:'Spin Wheel',task:'Complete Task',dailyCheckIn:'Daily Check-In',shareLink:'Use Share Link',hygiene:'Start Hygiene Opening'})[v] || v;
+  }
+
+  function obligationPenaltyOptions(current) {
+    const opts = [['addTime','Add Time'], ['freeze','Freeze'], ['pillory','Pillory'], ['addVisitors','Add Required Visitors'], ['losePoints','Lose Points']];
+    return opts.map(([v,l]) => `<option value="${v}" ${current===v?'selected':''}>${l}</option>`).join('');
+  }
+
+  function renderObligationPenaltyValue(i, p) {
+    if (p.type === 'pillory') return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.penalty.pilloryDuration`,'Pillory Duration',p.pilloryDuration)}</div>`;
+    if (p.type === 'addVisitors') return `<div class="field third" style="margin-top:14px"><label class="label">Visitors</label><input type="number" min="0" data-bind="extensions.obligations.rules.${i}.penalty.visitors" value="${p.visitors || 0}"></div>`;
+    if (p.type === 'losePoints') return `<div class="field third" style="margin-top:14px"><label class="label">Points</label><input type="number" min="0" data-bind="extensions.obligations.rules.${i}.penalty.points" value="${p.points || 0}"></div>`;
+    if (p.type === 'freeze') return `<p class="muted" style="margin-top:12px">Freeze must be enabled as a feature for this penalty to apply.</p>`;
+    return `<div style="margin-top:14px">${timeStepper(`extensions.obligations.rules.${i}.penalty.amount`,'Amount',p.amount)}</div>`;
+  }
+
+  function obligationPenaltyLabel(p={}) {
+    if (p.type === 'addTime') return `Add ${formatMs(p.amountMs || timeObjToMs(p.amount))}`;
+    if (p.type === 'freeze') return 'Freeze';
+    if (p.type === 'pillory') return `Pillory ${formatMs(p.pilloryDurationMs || timeObjToMs(p.pilloryDuration))}`;
+    if (p.type === 'addVisitors') return `Add ${p.visitors || 0} required visitors`;
+    if (p.type === 'losePoints') return `Lose ${p.points || 0} points`;
+    return 'Penalty';
+  }
+
+  function penaltySettings(path, p, pilloryAllowed, freezeAllowed, visitorsAllowed=false) {
+    return `<div class="three">
+      <div class="sub-panel">${toggleBox(`${path}.addTime.enabled`,'Add Time','Add user-defined time.',p.addTime.enabled)}${p.addTime.enabled?timeStepper(`${path}.addTime.amount`,'Amount',p.addTime.amount):''}</div>
+      ${pilloryAllowed?`<div class="sub-panel">${toggleBox(`${path}.pillory.enabled`,'Pillory','Start Pillory for user-defined time.',p.pillory.enabled)}${p.pillory.enabled?timeStepper(`${path}.pillory.duration`,'Duration',p.pillory.duration):''}</div>`:''}
+      ${freezeAllowed?`<div class="sub-panel">${toggleBox(`${path}.freeze.enabled`,'Freeze','Freeze the lock.',p.freeze.enabled)}</div>`:''}
+      ${visitorsAllowed?`<div class="sub-panel">${toggleBox(`${path}.addVisitors.enabled`,'Add Required Visitors','Increase visitor requirement.',p.addVisitors.enabled)}${p.addVisitors.enabled?`<label class="label">Amount</label><input type="number" min="0" data-bind="${path}.addVisitors.amount" value="${p.addVisitors.amount}">`:''}</div>`:''}
+    </div>`;
+  }
+
+  function timeStepper(path, label, value) {
+    const v = value || { d:0,h:0,m:0 };
+    return `<div class="stepper" data-stepper="${path}"><div class="stepper-title"><strong>${esc(label)}</strong><small>d / h / m</small></div><div class="stepper-grid">
+      ${stepCol(path,'d',v.d,'days')}${stepCol(path,'h',v.h,'hours')}${stepCol(path,'m',v.m,'minutes')}
+    </div></div>`;
+  }
+
+  function stepCol(path, unit, val, label) {
+    return `<div class="step-col"><button type="button" data-step="up" data-path="${path}" data-unit="${unit}">+</button><div class="val">${String(Number(val)||0).padStart(2,'0')}</div><div class="unit">${label}</div><button type="button" data-step="down" data-path="${path}" data-unit="${unit}">−</button></div>`;
+  }
+
+  function renderHistory() {
+    const lock = getLock();
+    return `<section class="grid">
+      <div class="card span-12"><h3>Active Lock Timeline</h3>${lock ? renderLog(lock.timeline) : '<div class="empty">No active lock.</div>'}</div>
+      <div class="card span-12"><h3>Lock Archive</h3>${state.archive.length ? state.archive.map(renderArchiveCard).join('') : '<div class="empty">No completed locks yet.</div>'}</div>
+    </section>`;
+  }
+
+  function renderArchiveCard(lock) {
+    const s = lock.summary || buildLockSummary(lock);
+    return `<div class="sub-panel"><div class="section-title"><div><h4>Lock completed</h4><p>${fmtDate(lock.startedAt)} → ${fmtDate(lock.completedAt)}</p></div></div><div class="stats-grid">${stat('Original', formatMs(s.originalDurationMs))}${stat('Final', formatMs(s.finalDurationMs))}${stat('Added', formatMs(s.timeAddedMs))}${stat('Removed', formatMs(s.timeRemovedMs))}${stat('Pillory votes', s.pilloryVotes)}${stat('Share visitors', s.shareVisitors || 0)}${stat('Points', s.points || 0)}${stat('Freezes', s.freezeCount || 0)}</div></div>`;
+  }
+
+  function renderLog(items) {
+    if (!items || !items.length) return '<div class="empty">No timeline events.</div>';
+    return `<div class="log">${items.map(e => `<div class="log-entry ${eventClass(e)}"><time>${fmtDate(e.timestamp)}</time><strong>${esc(e.title)}</strong><p>${esc(e.message)}</p></div>`).join('')}</div>`;
+  }
+
+  function eventClass(e) {
+    if (String(e.type).includes('frozen') || String(e.type).includes('unfrozen')) return 'freeze';
+    if (String(e.type).includes('removed') || String(e.type).includes('completed') || String(e.type).includes('won')) return 'good';
+    if (String(e.type).includes('added') || String(e.type).includes('failed') || String(e.type).includes('denied') || String(e.type).includes('missed')) return 'danger';
+    return '';
+  }
+
+  function renderStats() {
+    const lock = getLock();
+    const lifetime = calcLifetimeStats();
+    return `<section class="grid">
+      <div class="card span-12"><h3>Current Lock Stats</h3>${lock ? renderCurrentStats(lock) : '<div class="empty">No active lock.</div>'}</div>
+      <div class="card span-12"><h3>Lifetime Stats</h3><div class="stats-grid">${stat('Locks completed', lifetime.locks)}${stat('Total locked time', formatMs(lifetime.totalLockedMs))}${stat('Longest lock', formatMs(lifetime.longestMs))}${stat('Total added', formatMs(lifetime.addedMs))}${stat('Total removed', formatMs(lifetime.removedMs))}${stat('Pillory votes', lifetime.pilloryVotes)}${stat('Share visitors', lifetime.shareVisitors)}${stat('Freezes', lifetime.freezes)}</div></div>
+    </section>`;
+  }
+
+  function renderCurrentStats(lock) {
+    return `<div class="stats-grid">${stat('Status', statusText(lock))}${stat('Original', formatMs(lock.originalDurationMs))}${stat('Remaining', formatMs(remainingMs(lock)))}${stat('Points', lock.points)}${stat('Added', formatMs(lock.totals.timeAddedMs))}${stat('Removed', formatMs(lock.totals.timeRemovedMs))}${stat('Frozen count', lock.totals.freezeCount)}${stat('Frozen time', formatMs(lock.totals.totalFrozenMs))}${stat('Hygiene used', lock.totals.hygieneOpenings)}${stat('Hygiene exceeded', lock.totals.hygieneExceeded)}${stat('Pillory events', lock.totals.pilloryEvents)}${stat('Pillory votes', lock.totals.pilloryVotes)}${stat('Share visitors', rules()?.features?.shareLink?.enabled ? `${lock.shareLink.visitors}/${lock.shareLink.requiredVisitors}` : '—')}${stat('Tasks complete', lock.totals.tasksCompleted)}${stat('Tasks failed', lock.totals.tasksFailed)}${stat('Unlock denied', lock.totals.unlockGambleDenied)}${stat('Evil Dice', lock.totals.evilDiceRolls)}${stat('Deck cards', lock.totals.bigBlackDeckCardsPicked)}${stat('Obligations failed', lock.totals.obligationsFailed)}</div>`;
+  }
+
+  function calcLifetimeStats() {
+    const out = { locks: state.archive.length, totalLockedMs: 0, longestMs: 0, addedMs: 0, removedMs: 0, pilloryVotes: 0, shareVisitors: 0, freezes: 0 };
+    for (const l of state.archive) {
+      const s = l.summary || {};
+      out.totalLockedMs += s.finalDurationMs || Math.max(0, (l.completedAt||0) - (l.startedAt||0));
+      out.longestMs = Math.max(out.longestMs, s.finalDurationMs || 0);
+      out.addedMs += s.timeAddedMs || 0;
+      out.removedMs += s.timeRemovedMs || 0;
+      out.pilloryVotes += s.pilloryVotes || 0;
+      out.shareVisitors += s.shareVisitors || 0;
+      out.freezes += s.freezeCount || 0;
+    }
+    return out;
+  }
+
+  function stat(k, v) { return `<div class="stat"><span class="k">${esc(k)}</span><span class="v ${String(v).length>12?'small':''}">${esc(String(v))}</span></div>`; }
+
+  function renderSettings() {
+    return `<section class="grid"><div class="card span-6"><h3>Reset</h3><p>Delete local CageKeeper data on this browser.</p><div class="btn-row"><button class="btn danger" data-action="reset-app">Reset App</button>${state.activeLock?'<button class="btn danger" data-action="reset-active">Delete Active Lock</button>':''}</div></div><div class="card span-6"><h3>Version</h3><p>CageKeeper v${VERSION}</p><p class="muted">No import, export, or backup tools are included.</p></div></section>`;
+  }
+
+  function bindCommon() {
+    document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.tab)));
+    document.querySelectorAll('[data-bind]').forEach(el => {
+      el.addEventListener('change', () => updateBinding(el));
+      if (el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number')) el.addEventListener('input', () => updateBinding(el, true));
+    });
+    document.querySelectorAll('[data-step]').forEach(btn => btn.addEventListener('click', () => stepTime(btn.dataset.path, btn.dataset.unit, btn.dataset.step === 'up' ? 1 : -1)));
+    document.querySelectorAll('[data-action]').forEach(btn => btn.addEventListener('click', () => handleAction(btn.dataset.action, btn)));
+    document.querySelectorAll('[data-slice-field]').forEach(el => el.addEventListener('change', () => updateSliceField(el)));
+    document.querySelectorAll('[data-task-field]').forEach(el => el.addEventListener('input', () => updateTaskField(el)));
+  }
+
+  function updateBinding(el, noRender=false) {
+    const path = el.dataset.bind;
+    let value;
+    if (el.type === 'checkbox') value = el.checked;
+    else if (el.type === 'number') value = Number(el.value);
+    else value = el.value;
+    setPath(state.seal, path, value);
+    saveState();
+    if (!noRender || el.type === 'checkbox' || el.tagName === 'SELECT') render();
+  }
+
+  function stepTime(path, unit, delta) {
+    const obj = getPath(state.seal, path);
+    if (!obj) return;
+    const max = unit === 'd' ? 999 : unit === 'h' ? 23 : 59;
+    obj[unit] = clampNum((Number(obj[unit]) || 0) + delta, 0, max);
+    saveState(); render();
+  }
+
+  function setPath(obj, path, value) {
+    const parts = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  function getPath(obj, path) {
+    return path.split('.').reduce((cur, key) => cur ? cur[key] : undefined, obj);
+  }
+
+  function updateSliceField(el) {
+    const i = Number(el.dataset.sliceIndex);
+    const field = el.dataset.sliceField;
+    state.seal.extensions.wheel.slices[i][field] = el.value;
+    saveState(); render();
+  }
+
+  function updateTaskField(el) {
+    const i = Number(el.dataset.taskIndex);
+    const field = el.dataset.taskField;
+    state.seal.extensions.tasks.taskList[i][field] = el.value;
+    saveState();
+  }
+
+  function handleAction(action, btn) {
+    if (action === 'seal-lock') return createLock();
+    if (action === 'complete-lock') return completeLock();
+    if (action === 'start-hygiene') return startHygieneOpening();
+    if (action === 'close-hygiene') return closeHygieneOpening();
+    if (action === 'complete-checkin') return completeCheckIn();
+    if (action === 'roll-dice') return rollDice();
+    if (action === 'roll-evil-dice') return rollEvilDice();
+    if (action === 'spin-wheel') return spinWheel();
+    if (action === 'deal-bbd-hand') return dealBigBlackDeckHand();
+    if (action === 'choose-bbd-card') return chooseBigBlackDeckCard(Number(btn.dataset.index));
+    if (action === 'task-complete') return resolveTask('complete');
+    if (action === 'task-fail') return resolveTask('fail');
+    if (action === 'roll-unlock-gamble') return rollUnlockGamble();
+    if (action === 'start-share') {
+      const loc = document.getElementById('shareLocation')?.value || 'chatroom';
+      const dur = timeObjToMs(getPath(state.seal, 'shareDuration') || readStepperFromDom('shareDuration'));
+      return startShareLink(loc, dur);
+    }
+    if (action === 'buy-remove-time') return buyStoreItem('removeTime');
+    if (action === 'buy-unfreeze') return buyStoreItem('unfreeze');
+    if (action === 'buy-reduce-visitors') return buyStoreItem('reduceVisitors');
+    if (action === 'reset-app') return resetApp();
+    if (action === 'reset-active') return archiveActiveAsReset();
+    if (action === 'add-slice') return addWheelSlice();
+    if (action === 'remove-slice') return removeWheelSlice(Number(btn.dataset.index));
+    if (action === 'edit-slice-time') return editSliceTime(Number(btn.dataset.index));
+    if (action === 'add-task') return addTask();
+    if (action === 'remove-task') return removeTask(Number(btn.dataset.index));
+    if (action === 'toggle-bbd-card') return toggleBigBlackDeckCard(btn.dataset.cardId);
+    if (action === 'add-obligation') return addObligation();
+    if (action === 'remove-obligation') return removeObligation(Number(btn.dataset.index));
+  }
+
+  function readStepperFromDom(path) {
+    const out = { d:0,h:0,m:0 };
+    document.querySelectorAll(`[data-path="${path}"]`).forEach(btn => {
+      const unit = btn.dataset.unit;
+      const val = btn.parentElement.querySelector('.val')?.textContent || '0';
+      out[unit] = Number(val) || 0;
+    });
+    return out;
+  }
+
+  function addWheelSlice() {
+    state.seal.extensions.wheel.slices.push({ id: uid('slice'), label: 'New Slice', effect: 'addTime', amount: { d:0,h:0,m:30 } });
+    saveState(); render();
+  }
+
+  function removeWheelSlice(i) {
+    state.seal.extensions.wheel.slices.splice(i,1);
+    if (!state.seal.extensions.wheel.slices.length) addWheelSlice();
+    saveState(); render();
+  }
+
+  function editSliceTime(i) {
+    const s = state.seal.extensions.wheel.slices[i];
+    if (!s) return;
+    const target = s.effect === 'pillory' ? 'duration' : 'amount';
+    const current = s[target] || { d:0,h:0,m:0 };
+    const input = prompt('Enter time as days,hours,minutes', `${current.d||0},${current.h||0},${current.m||0}`);
+    if (input === null) return;
+    const [d,h,m] = input.split(',').map(x => Math.max(0, Number(x.trim()) || 0));
+    s[target] = { d: clampNum(d,0,999), h: clampNum(h,0,23), m: clampNum(m,0,59) };
+    saveState(); render();
+  }
+
+  function addTask() {
+    state.seal.extensions.tasks.taskList.push({ id: uid('task'), name: 'New task', description: '' });
+    saveState(); render();
+  }
+
+  function removeTask(i) {
+    state.seal.extensions.tasks.taskList.splice(i,1);
+    if (!state.seal.extensions.tasks.taskList.length) addTask();
+    saveState(); render();
+  }
+
+  function toggleBigBlackDeckCard(id) {
+    const cfg = state.seal.extensions.bigBlackDeck;
+    if (!cfg.selectedCardIds) cfg.selectedCardIds = [];
+    const i = cfg.selectedCardIds.indexOf(id);
+    if (i >= 0) {
+      if (cfg.selectedCardIds.length <= 1) return toast('At least one card required');
+      cfg.selectedCardIds.splice(i,1);
+    } else {
+      cfg.selectedCardIds.push(id);
+    }
+    saveState(); render();
+  }
+
+  function addObligation() {
+    state.seal.extensions.obligations.rules.push(defaultObligationRule());
+    saveState(); render();
+  }
+
+  function removeObligation(i) {
+    state.seal.extensions.obligations.rules.splice(i,1);
+    if (!state.seal.extensions.obligations.rules.length) state.seal.extensions.obligations.rules.push(defaultObligationRule());
+    saveState(); render();
+  }
+
+  function resetApp() {
+    if (!confirm('Reset CageKeeper? This deletes all local data.')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    state = normalizeState({ version: VERSION, tab: 'dashboard', seal: defaultSeal(), activeLock: null, archive: [] });
+    toast('App reset');
+    render();
+  }
+
+  function statusText(lock) {
+    if (!lock) return 'No lock';
+    if (lock.freeze?.active) return 'Frozen';
+    if (lock.status === 'expired' || remainingMs(lock) <= 0) return 'Expired';
+    if (lock.status === 'completed') return 'Completed';
+    return 'Active';
+  }
+
+  function lockSvg() {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3"/><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M12 14v3"/></svg>`;
+  }
+
+  function renderToasts() {
+    const wrap = document.getElementById('toastWrap');
+    if (!wrap) return;
+    wrap.innerHTML = toastQueue.map(t => `<div class="toast"><strong>${esc(t.title)}</strong>${t.message?`<small>${esc(t.message)}</small>`:''}</div>`).join('');
+  }
+
+  function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function escAttr(s) { return esc(s).replace(/'/g, '&#39;'); }
+  // Service worker disabled in v0.2.3 to prevent stale cached CSS/HTML during development.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(reg => reg.unregister())).catch(() => {});
+  }
+render();
+  clearInterval(tickInterval);
+  tickInterval = setInterval(() => { if (state.activeLock) render(); }, 1000);
+})();
